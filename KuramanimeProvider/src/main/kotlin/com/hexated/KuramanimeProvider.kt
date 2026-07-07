@@ -9,11 +9,14 @@ import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.mozilla.javascript.BaseFunction
 import org.mozilla.javascript.Context
+import org.mozilla.javascript.ContextFactory
 import org.mozilla.javascript.Function
 import org.mozilla.javascript.Scriptable
 import org.mozilla.javascript.ScriptableObject
@@ -249,7 +252,7 @@ class KuramanimeProvider : MainAPI() {
     suspend fun fetchAuth(): String {
         val url = "$mainUrl/storage/leviathan.js?v=${System.currentTimeMillis()}"
         val res = app.get(url).text
-        return extractAuthToken(res) ?: throw ErrorLoadingException()
+        return withContext(Dispatchers.IO) { extractAuthToken(res) } ?: throw ErrorLoadingException()
     }
 
     private fun extractAuthToken(rawScript: String): String? {
@@ -269,65 +272,89 @@ class KuramanimeProvider : MainAPI() {
             }
         }
 
-        val rhino = Context.enter()
-        try {
-            rhino.optimizationLevel = -1 // interpreted mode: avoids JVM method-size limits on big scripts
-            rhino.setLanguageVersion(Context.VERSION_ES6)
-            val scope: Scriptable = rhino.initSafeStandardObjects()
-
-            val noop = object : BaseFunction() {
-                override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any =
-                    Undefined.instance
-            }
-            val fetchStub = object : BaseFunction() {
-                override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any {
-                    captureFromOptions(args.getOrNull(1))
-                    return Undefined.instance
+        val factory = object : ContextFactory() {
+            override fun observeInstructionCount(cx: Context, instructionCount: Int) {
+                if (Thread.currentThread().isInterrupted) {
+                    throw InterruptedException("aborted")
                 }
             }
-            val ajaxStub = object : BaseFunction() {
-                override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any {
-                    captureFromOptions(args.getOrNull(0))
-                    return Undefined.instance
+
+            override fun makeContext(): Context {
+                val cx = super.makeContext()
+                cx.instructionObserverThreshold = 2000
+                return cx
+            }
+        }
+
+        val worker = Thread(null, {
+            val rhino = factory.enterContext()
+            try {
+                rhino.optimizationLevel = -1 // interpreted mode: avoids JVM method-size limits on big scripts + enables the kill switch above
+                rhino.setLanguageVersion(Context.VERSION_ES6)
+                val scope: Scriptable = rhino.initSafeStandardObjects()
+
+                val noop = object : BaseFunction() {
+                    override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any =
+                        Undefined.instance
                 }
-            }
-            val dollarStub = object : BaseFunction() {
-                override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any = scope
-            }
-            ScriptableObject.putProperty(dollarStub, "ajax", ajaxStub)
-
-            scope.put("fetch", scope, fetchStub)
-            scope.put("$", scope, dollarStub)
-            scope.put("setInterval", scope, noop)
-            scope.put("setTimeout", scope, noop)
-            scope.put("clearInterval", scope, noop)
-            scope.put("clearTimeout", scope, noop)
-            scope.put("document", scope, rhino.newObject(scope))
-            scope.put("navigator", scope, rhino.newObject(scope))
-            scope.put("window", scope, scope)
-
-            val preExisting = scope.ids.toSet()
-
-            rhino.evaluateString(scope, script, "leviathan.js", 1, null)
-
-            val dummyOpts = rhino.newObject(scope)
-            val candidateArgs = arrayOf<Any?>(
-                "$mainUrl/probe", "POST", "json", dummyOpts, noop, noop, noop
-            )
-
-            for (id in scope.ids) {
-                if (captured != null) break
-                val name = id as? String ?: continue
-                if (name in preExisting) continue
-                val fn = ScriptableObject.getProperty(scope, name) as? Function ?: continue
-                try {
-                    fn.call(rhino, scope, scope, candidateArgs)
-                } catch (_: Exception) {
+                val fetchStub = object : BaseFunction() {
+                    override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any {
+                        captureFromOptions(args.getOrNull(1))
+                        return Undefined.instance
+                    }
                 }
+                val ajaxStub = object : BaseFunction() {
+                    override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any {
+                        captureFromOptions(args.getOrNull(0))
+                        return Undefined.instance
+                    }
+                }
+                val dollarStub = object : BaseFunction() {
+                    override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any = scope
+                }
+                ScriptableObject.putProperty(dollarStub, "ajax", ajaxStub)
+
+                scope.put("fetch", scope, fetchStub)
+                scope.put("$", scope, dollarStub)
+                scope.put("setInterval", scope, noop)
+                scope.put("setTimeout", scope, noop)
+                scope.put("clearInterval", scope, noop)
+                scope.put("clearTimeout", scope, noop)
+                scope.put("document", scope, rhino.newObject(scope))
+                scope.put("navigator", scope, rhino.newObject(scope))
+                scope.put("window", scope, scope)
+
+                val preExisting = scope.ids.toSet()
+
+                rhino.evaluateString(scope, script, "leviathan.js", 1, null)
+
+                val dummyOpts = rhino.newObject(scope)
+                val candidateArgs = arrayOf<Any?>(
+                    "$mainUrl/probe", "POST", "json", dummyOpts, noop, noop, noop
+                )
+
+                for (id in scope.ids) {
+                    if (captured != null) break
+                    val name = id as? String ?: continue
+                    if (name in preExisting) continue
+                    val fn = ScriptableObject.getProperty(scope, name) as? Function ?: continue
+                    try {
+                        fn.call(rhino, scope, scope, candidateArgs)
+                    } catch (_: Throwable) {
+                    }
+                }
+            } catch (_: Throwable) {
+            } finally {
+                Context.exit()
             }
-        } catch (_: Exception) {
-        } finally {
-            Context.exit()
+        }, "kuramanime-leviathan-js", 8 * 1024 * 1024)
+
+        worker.isDaemon = true
+        worker.start()
+        worker.join(10_000L)
+        if (worker.isAlive) {
+            worker.interrupt()
+            worker.join(1_000L)
         }
 
         return captured
