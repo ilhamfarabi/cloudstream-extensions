@@ -12,6 +12,12 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.delay
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import org.mozilla.javascript.BaseFunction
+import org.mozilla.javascript.Context
+import org.mozilla.javascript.Function
+import org.mozilla.javascript.Scriptable
+import org.mozilla.javascript.ScriptableObject
+import org.mozilla.javascript.Undefined
 import java.util.Calendar
 
 class KuramanimeProvider : MainAPI() {
@@ -243,8 +249,88 @@ class KuramanimeProvider : MainAPI() {
     suspend fun fetchAuth(): String {
         val url = "$mainUrl/storage/leviathan.js?v=${System.currentTimeMillis()}"
         val res = app.get(url).text
-        val auth = Regex("""=\s*\[(.*?)]""").find(res)?.groupValues?.get(1)?.split(",")?.map { it.trim().removeSurrounding("'").removeSurrounding("\"") } ?: throw ErrorLoadingException()
-        return "${auth.last()}${auth[9]}${auth[1]}${auth.first()}i"
+        return extractAuthToken(res) ?: throw ErrorLoadingException()
+    }
+
+    private fun extractAuthToken(rawScript: String): String? {
+        val script = rawScript
+            .replace(Regex("""\basync\s+function"""), "function")
+            .replace(Regex("""\bawait\s+"""), "")
+
+        var captured: String? = null
+
+        fun captureFromOptions(options: Any?) {
+            if (captured != null) return
+            val opts = options as? Scriptable ?: return
+            val headers = ScriptableObject.getProperty(opts, "headers") as? Scriptable ?: return
+            val authVal = ScriptableObject.getProperty(headers, "Authorization")
+            if (authVal != Scriptable.NOT_FOUND && authVal != null) {
+                captured = Context.toString(authVal).removePrefix("Bearer ").trim()
+            }
+        }
+
+        val rhino = Context.enter()
+        try {
+            rhino.optimizationLevel = -1 // interpreted mode: avoids JVM method-size limits on big scripts
+            rhino.setLanguageVersion(Context.VERSION_ES6)
+            val scope: Scriptable = rhino.initSafeStandardObjects()
+
+            val noop = object : BaseFunction() {
+                override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any =
+                    Undefined.instance
+            }
+            val fetchStub = object : BaseFunction() {
+                override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any {
+                    captureFromOptions(args.getOrNull(1))
+                    return Undefined.instance
+                }
+            }
+            val ajaxStub = object : BaseFunction() {
+                override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any {
+                    captureFromOptions(args.getOrNull(0))
+                    return Undefined.instance
+                }
+            }
+            val dollarStub = object : BaseFunction() {
+                override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any = scope
+            }
+            ScriptableObject.putProperty(dollarStub, "ajax", ajaxStub)
+
+            scope.put("fetch", scope, fetchStub)
+            scope.put("$", scope, dollarStub)
+            scope.put("setInterval", scope, noop)
+            scope.put("setTimeout", scope, noop)
+            scope.put("clearInterval", scope, noop)
+            scope.put("clearTimeout", scope, noop)
+            scope.put("document", scope, rhino.newObject(scope))
+            scope.put("navigator", scope, rhino.newObject(scope))
+            scope.put("window", scope, scope)
+
+            val preExisting = scope.ids.toSet()
+
+            rhino.evaluateString(scope, script, "leviathan.js", 1, null)
+
+            val dummyOpts = rhino.newObject(scope)
+            val candidateArgs = arrayOf<Any?>(
+                "$mainUrl/probe", "POST", "json", dummyOpts, noop, noop, noop
+            )
+
+            for (id in scope.ids) {
+                if (captured != null) break
+                val name = id as? String ?: continue
+                if (name in preExisting) continue
+                val fn = ScriptableObject.getProperty(scope, name) as? Function ?: continue
+                try {
+                    fn.call(rhino, scope, scope, candidateArgs)
+                } catch (_: Exception) {
+                }
+            }
+        } catch (_: Exception) {
+        } finally {
+            Context.exit()
+        }
+
+        return captured
     }
 
     private fun randomId(length: Int = 6): String {

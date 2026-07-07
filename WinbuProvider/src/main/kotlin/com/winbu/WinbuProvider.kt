@@ -15,6 +15,7 @@ import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.httpsify
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -31,6 +32,8 @@ class WinbuProvider : MainAPI() {
     override val hasQuickSearch = true
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.Movie, TvType.Anime, TvType.TvSeries)
+
+    private val interceptor by lazy { CloudflareKiller() }
 
     data class FiledonPage(val props: FiledonProps? = null)
     data class FiledonProps(val url: String? = null, val files: FiledonFile? = null)
@@ -53,7 +56,7 @@ class WinbuProvider : MainAPI() {
             request.data.format(page)
         }
 
-        val document = app.get("$mainUrl/$path").documentLarge
+        val document = app.get("$mainUrl/$path", interceptor = interceptor).documentLarge
         
         val cssSelector = if (request.name in listOf("Ongoing Anime", "Complete Anime", "Most Popular", "Movie")) {
             "#anime .ml-item, .movies-list .ml-item"
@@ -109,7 +112,7 @@ class WinbuProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        return app.get("$mainUrl/?s=$query").documentLarge
+        return app.get("$mainUrl/?s=$query", interceptor = interceptor).documentLarge
             .select("#movies .ml-item, .movies-list .ml-item")
             .mapNotNull { it.toSearchResult("Series") }
             .distinctBy { it.url }
@@ -124,7 +127,7 @@ class WinbuProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).documentLarge
+        val document = app.get(url, interceptor = interceptor).documentLarge
         val infoRoot = document.selectFirst(".m-info .t-item") ?: document
 
         val rawTitle = infoRoot.selectFirst(".mli-info .judul")?.text()
@@ -259,7 +262,7 @@ class WinbuProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = app.get(data).documentLarge
+        val document = app.get(data, interceptor = interceptor).documentLarge
         var found = false
         val seen = Collections.synchronizedSet(hashSetOf<String>())
         
@@ -311,7 +314,8 @@ class WinbuProvider : MainAPI() {
                             app.post(
                                 "$mainUrl/wp-admin/admin-ajax.php",
                                 data = mapOf("action" to "player_ajax", "post" to post, "nume" to nume, "type" to type),
-                                headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data)
+                                headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
+                                interceptor = interceptor
                             ).text
                         }.getOrNull()
 
