@@ -58,7 +58,7 @@ class JwtSessionInterceptor(private val targetCookie: String = "sl_jwt_session")
         }
 
         if (needsRefresh) {
-            val context = AcraApplication.context
+            val context = CloudStreamApp.context
             if (context != null) {
                 val handler = Handler(Looper.getMainLooper())
                 var webView: WebView? = null
