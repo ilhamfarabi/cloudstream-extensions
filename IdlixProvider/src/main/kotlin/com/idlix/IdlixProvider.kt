@@ -5,11 +5,14 @@ import com.lagradost.api.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
-import com.lagradost.cloudstream3.extractors.helper.AesHelper
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import org.jsoup.nodes.Element
 import java.net.URI
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class IdlixProvider : MainAPI() {
     override var mainUrl = "https://idlixian.com"
@@ -216,7 +219,7 @@ class IdlixProvider : MainAPI() {
             
             val metrix = AppUtils.parseJson<AesData>(json.embed_url).m
             val password = createKey(json.key, metrix)
-            val decrypted = AesHelper.cryptoAESHandler(json.embed_url, password.toByteArray(), false)?.fixBloat() ?: return@amap
+            val decrypted = cryptoAESHandler(json.embed_url, password.toByteArray())?.fixBloat() ?: return@amap
             Log.d("AdiManu", decrypted.toJson())
 
             if (!decrypted.contains("youtube")) {
@@ -246,6 +249,43 @@ class IdlixProvider : MainAPI() {
 
     private fun String.fixBloat(): String {
         return this.replace("\"", "").replace("\\", "")
+    }
+
+    /**
+     * Local replacement for the (prerelease-only) AesHelper.cryptoAESHandler.
+     * Decrypts an OpenSSL-style "Salted__" base64 AES-CBC blob (the same
+     * scheme CryptoJS.AES.decrypt(cipher, passphrase) produces) using a
+     * passphrase, mirroring the site's own JS decryption.
+     */
+    private fun cryptoAESHandler(data: String, password: ByteArray): String? {
+        return try {
+            val cipherData = base64DecodeArray(data)
+            if (cipherData.size < 16 || String(cipherData.copyOfRange(0, 8), Charsets.UTF_8) != "Salted__") {
+                return null
+            }
+            val salt = cipherData.copyOfRange(8, 16)
+            val (key, iv) = deriveKeyAndIv(password, salt, 32, 16)
+            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+            String(cipher.doFinal(cipherData.copyOfRange(16, cipherData.size)), Charsets.UTF_8)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun deriveKeyAndIv(password: ByteArray, salt: ByteArray, keyLength: Int, ivLength: Int): Pair<ByteArray, ByteArray> {
+        val digest = MessageDigest.getInstance("MD5")
+        var generated = ByteArray(0)
+        var previous = ByteArray(0)
+        while (generated.size < keyLength + ivLength) {
+            digest.reset()
+            digest.update(previous)
+            digest.update(password)
+            digest.update(salt)
+            previous = digest.digest()
+            generated += previous
+        }
+        return generated.copyOfRange(0, keyLength) to generated.copyOfRange(keyLength, keyLength + ivLength)
     }
 
     data class ResponseSource(

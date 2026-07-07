@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.APIHolder.capitalize
 import com.lagradost.cloudstream3.APIHolder.unixTimeMS
-import com.lagradost.cloudstream3.extractors.helper.AesHelper
 import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
@@ -78,7 +77,7 @@ object Cinemax21ProviderExtractor : Cinemax21Provider() {
 
                 val metrix = parseJson<AesData>(json.embed_url).m
                 val password = createIdlixKey(json.key, metrix)
-                val decrypted = AesHelper.cryptoAESHandler(json.embed_url, password.toByteArray(), false)
+                val decrypted = cryptoAESHandler(json.embed_url, password.toByteArray())
                     ?.fixUrlBloat() ?: return@amap
 
                 when {

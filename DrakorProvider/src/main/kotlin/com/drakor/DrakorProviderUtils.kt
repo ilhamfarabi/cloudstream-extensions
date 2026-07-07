@@ -368,6 +368,43 @@ fun String.fixUrlBloat(): String {
     return this.replace("\"", "").replace("\\", "")
 }
 
+/**
+ * Local replacement for the (prerelease-only) AesHelper.cryptoAESHandler.
+ * Decrypts an OpenSSL-style "Salted__" base64 AES-CBC blob (the same
+ * scheme CryptoJS.AES.decrypt(cipher, passphrase) produces) using a
+ * passphrase, mirroring the site's own JS decryption.
+ */
+fun cryptoAESHandler(data: String, password: ByteArray): String? {
+    return try {
+        val cipherData = Base64.decode(data, Base64.DEFAULT)
+        if (cipherData.size < 16 || String(cipherData.copyOfRange(0, 8), Charsets.UTF_8) != "Salted__") {
+            return null
+        }
+        val salt = cipherData.copyOfRange(8, 16)
+        val (key, iv) = deriveAesKeyAndIv(password, salt, 32, 16)
+        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+        String(cipher.doFinal(cipherData.copyOfRange(16, cipherData.size)), Charsets.UTF_8)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun deriveAesKeyAndIv(password: ByteArray, salt: ByteArray, keyLength: Int, ivLength: Int): Pair<ByteArray, ByteArray> {
+    val digest = MessageDigest.getInstance("MD5")
+    var generated = ByteArray(0)
+    var previous = ByteArray(0)
+    while (generated.size < keyLength + ivLength) {
+        digest.reset()
+        digest.update(previous)
+        digest.update(password)
+        digest.update(salt)
+        previous = digest.digest()
+        generated += previous
+    }
+    return generated.copyOfRange(0, keyLength) to generated.copyOfRange(keyLength, keyLength + ivLength)
+}
+
 fun String.getHost(): String {
     return fixTitle(URI(this).host.substringBeforeLast(".").substringAfterLast("."))
 }
