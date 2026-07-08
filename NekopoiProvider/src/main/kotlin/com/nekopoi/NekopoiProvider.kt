@@ -164,10 +164,11 @@ class NekopoiProvider : MainAPI() {
             ?: document.selectFirst("title")?.text()?.substringBefore(" – ")?.trim() 
             ?: ""
 
-        val poster = doc.selectFirst("div.nk-series-poster, div.nk-thumb-crop, div.nk-post-thumb, div.nk-series-thumb")?.attr("style")
-            ?: doc.selectFirst("div.nk-featured-img img, div.imgdesc img, div.thm img")?.attr("src")
-            ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
-        val poster = Regex("url\\('([^']+)'").find(poster ?: "")?.groupValues?.getOrNull(1) ?: poster
+        var poster = fixUrlNull(document.selectFirst("div.nk-featured-img img, div.imgdesc img, div.thm img")?.attr("src"))
+        if (poster == null) {
+            val bgStyle = document.selectFirst("div.nk-series-poster, div.nk-thumb-crop, div.nk-post-thumb, div.nk-series-thumb")?.attr("style")
+            poster = fixUrlNull(Regex("""url\('([^']+)'\)""").find(bgStyle ?: "")?.groupValues?.getOrNull(1))
+        }
 
         val table = document.select("div.listinfo ul, div.konten")
         
