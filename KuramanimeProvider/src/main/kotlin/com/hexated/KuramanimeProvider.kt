@@ -1,27 +1,20 @@
 package com.hexated
 
-import android.annotation.SuppressLint
-import android.content.Context
-import android.webkit.CookieManager
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addAniListId
 import com.lagradost.cloudstream3.LoadResponse.Companion.addMalId
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import java.util.concurrent.TimeUnit
 import java.util.Calendar
+import app.cash.quickjs.QuickJs
 
 class KuramanimeProvider : MainAPI() {
     override var mainUrl = "https://v18.kuramanime.ing"
@@ -31,7 +24,10 @@ class KuramanimeProvider : MainAPI() {
     override var lang = "id"
     override var sequentialMainPage = true
     override val hasDownloadSupport = true
-
+    
+    var authorization: String? = null
+    private var authFetchTime: Long = 0L
+    private val AUTH_EXPIRY_MS = 3600000L // Token refresh setiap 1 Jam (3.600.000 ms)
 
     override val supportedTypes = setOf(
         TvType.Anime,
@@ -40,11 +36,7 @@ class KuramanimeProvider : MainAPI() {
     )
 
     companion object {
-        private const val MOBILE_USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-
-        private var cachedCookies: String? = null
-        private const val SEED_COOKIES = ""
+        private var cookies: Map<String, String> = mapOf()
 
         fun getType(t: String, s: Int): TvType {
             return if (t.contains("OVA", true) || t.contains("Special")) TvType.OVA
@@ -54,8 +46,8 @@ class KuramanimeProvider : MainAPI() {
 
         fun getStatus(t: String): ShowStatus {
             return when (t) {
-                "Ongoing" -> ShowStatus.Completed
-                "Completed" -> ShowStatus.Ongoing
+                "Completed" -> ShowStatus.Completed
+                "Ongoing" -> ShowStatus.Ongoing
                 else -> ShowStatus.Completed
             }
         }
@@ -82,11 +74,15 @@ class KuramanimeProvider : MainAPI() {
         "$mainUrl/quick/donghua?order_by=updated&page=" to "Donghua"
     )
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+    override suspend fun getMainPage(
+        page: Int,
+        request: MainPageRequest
+    ): HomePageResponse {
         val document = app.get(request.data + page).document
         val home = document.select("div#animeList div.product__item").mapNotNull {
             it.toSearchResult()
         }
+
         return newHomePageResponse(request.name, home)
     }
 
@@ -113,16 +109,20 @@ class KuramanimeProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        return app.get("$mainUrl/anime?search=$query&order_by=latest").document.select("div#animeList div.product__item").mapNotNull {
+        return app.get(
+            "$mainUrl/anime?search=$query&order_by=latest"
+        ).document.select("div#animeList div.product__item").mapNotNull {
             it.toSearchResult()
         }
     }
 
     override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
+
         val title = document.selectFirst(".anime__details__title > h3")!!.text().trim()
         val poster = document.selectFirst(".anime__details__pic")?.attr("data-setbg")
-        val tags = document.select("div.anime__details__widget > div > div:nth-child(2) > ul > li:nth-child(1)")
+        val tags =
+            document.select("div.anime__details__widget > div > div:nth-child(2) > ul > li:nth-child(1)")
                 .text().trim().replace("Genre: ", "").split(", ")
 
         val year = Regex("\\D").replace(
@@ -136,13 +136,15 @@ class KuramanimeProvider : MainAPI() {
         val description = document.select(".anime__details__text > p").text().trim()
 
         val episodes = mutableListOf<Episode>()
+
         for (i in 1..30) {
             val doc = app.get("$url?page=$i").document
             val eps = Jsoup.parse(doc.select("#episodeLists").attr("data-content"))
                 .select("a.btn.btn-sm.btn-danger")
                 .mapNotNull {
                     val name = it.text().trim()
-                    val episode = Regex("(\\d+[.,]?\\d*)").find(name)?.groupValues?.getOrNull(0)?.toIntOrNull()
+                    val episode = Regex("(\\d+[.,]?\\d*)").find(name)?.groupValues?.getOrNull(0)
+                        ?.toIntOrNull()
                     val link = it.attr("href")
                     newEpisode(link) { this.episode = episode }
                 }
@@ -150,7 +152,8 @@ class KuramanimeProvider : MainAPI() {
         }
 
         val type = getType(
-            document.selectFirst("div.col-lg-6.col-md-6 ul li:contains(Tipe:) a")?.text()?.lowercase() ?: "tv", episodes.size
+            document.selectFirst("div.col-lg-6.col-md-6 ul li:contains(Tipe:) a")?.text()
+                ?.lowercase() ?: "tv", episodes.size
         )
         val recommendations = document.select("div#randomList > a").mapNotNull {
             val epHref = it.attr("href")
@@ -179,173 +182,198 @@ class KuramanimeProvider : MainAPI() {
         }
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    private suspend fun invokeLocalSource(
+        url: String,
+        server: String,
+        headers: Map<String, String>,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val request = app.post(
+            url,
+            data = mapOf("authorization" to getAuth()),
+            headers = headers,
+            cookies = cookies
+        )
+        delay(2000)
+        val document = request.document
+        document.select("video#player > source").map {
+            val link = fixUrl(it.attr("src"))
+            val quality = it.attr("size").toIntOrNull()
+            callback.invoke(
+                newExtractorLink(
+                    fixTitle(server),
+                    fixTitle(server),
+                    link,
+                    INFER_TYPE
+                ) {
+                    this.quality = quality ?: Qualities.Unknown.value
+                }
+            )
+        }
+        if (server == "kuramadrive") {
+            document.select("div#animeDownloadLink a").amap {
+                loadExtractor(it.attr("href"), "$mainUrl/", subtitleCallback, callback)
+            }
+        }
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val context = CloudStreamApp.context ?: return false
-        var found = false
+        val req = app.get(data)
+        val res = req.document
+        cookies = req.cookies
 
-        val snapshots = withTimeoutOrNull(150_000L) {
-            withContext(Dispatchers.Main) {
-                captureServerSnapshots(context, data)
-            }
-        } ?: emptyMap()
+        val token = res.selectFirst("meta[name=csrf-token]")?.attr("content") ?: return false
+        val dataKps = res.selectFirst("div.col-lg-12.mt-3")?.attr("data-kk") ?: return false
 
-        snapshots.forEach { (server, html) ->
-            val doc = Jsoup.parse(html, data)
+        val assets = getAssets(dataKps)
 
-            doc.select("video#player > source").forEach { source ->
-                val link = fixUrl(source.attr("src"))
-                if (link.isBlank()) return@forEach
-                val quality = source.attr("size").toIntOrNull()
-                found = true
-                callback.invoke(newExtractorLink(fixTitle(server), fixTitle(server), link, INFER_TYPE) {
-                    this.quality = quality ?: Qualities.Unknown.value
-                })
-            }
+        var headers = mapOf(
+            "X-CSRF-TOKEN" to token,
+            "X-Fuck-ID" to "${assets.MIX_AUTH_KEY}:${assets.MIX_AUTH_TOKEN}",
+            "X-Request-ID" to randomId(),
+            "X-Request-Index" to "0",
+            "X-Requested-With" to "XMLHttpRequest",
+        )
 
-            doc.selectFirst("div.iframe-container iframe")?.attr("src")?.takeIf { it.isNotBlank() }?.let { iframeSrc ->
-                runCatching {
-                    loadExtractor(fixUrl(iframeSrc), "$mainUrl/", subtitleCallback) {
-                        found = true
-                        callback.invoke(it)
-                    }
-                }
-            }
+        val tokenRes = app.get(
+            "$mainUrl/${assets.MIX_PREFIX_AUTH_ROUTE_PARAM}${assets.MIX_AUTH_ROUTE_PARAM}",
+            headers = headers,
+            cookies = cookies
+        )
 
+        val tokenKey = tokenRes.text
+        cookies = tokenRes.cookies
+
+        headers = mapOf(
+            "X-CSRF-TOKEN" to token,
+            "X-Requested-With" to "XMLHttpRequest",
+        )
+
+        res.select("select#changeServer option").amap { source ->
+            val server = source.attr("value")
+            val link =
+                "$data?${assets.MIX_PAGE_TOKEN_KEY}=$tokenKey&${assets.MIX_STREAM_SERVER_KEY}=$server"
             if (server.contains(Regex("(?i)kuramadrive|archive"))) {
-                doc.select("div#animeDownloadLink a[href]").forEach { a ->
-                    val href = a.attr("href")
-                    if (href.isNotBlank()) {
-                        runCatching {
-                            loadExtractor(href, "$mainUrl/", subtitleCallback) {
-                                found = true
-                                callback.invoke(it)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return found
-    }
-    
-    private suspend fun captureServerSnapshots(context: Context, url: String): Map<String, String> {
-        val snapshots = linkedMapOf<String, String>()
-        val webView = try {
-            WebView(context)
-        } catch (_: Throwable) {
-            return snapshots
-        }
-
-        try {
-            webView.settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                userAgentString = MOBILE_USER_AGENT
-            }
-
-            val cookieManager = CookieManager.getInstance()
-            cookieManager.setAcceptCookie(true)
-            cookieManager.setAcceptThirdPartyCookies(webView, true)
-            val seed = cachedCookies ?: SEED_COOKIES
-            if (seed.isNotBlank()) {
-                seed.split(";").forEach { pair ->
-                    val trimmed = pair.trim()
-                    if (trimmed.isNotEmpty()) cookieManager.setCookie(mainUrl, trimmed)
-                }
-                cookieManager.flush()
-            }
-
-            val loaded = withTimeoutOrNull(25_000L) {
-                suspendCancellableCoroutine<Unit> { cont ->
-                    webView.webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, finishedUrl: String?) {
-                            if (cont.isActive) cont.resume(Unit) {}
-                        }
-                    }
-                    webView.loadUrl(url)
-                }
-            }
-            if (loaded == null) {
-                cachedCookies = null
-                return snapshots
-            }
-
-            delay(3000)
-
-            val servers = readServerList(webView)
-            val loopDeadline = System.currentTimeMillis() + 100_000L
-
-            for (server in servers) {
-                if (System.currentTimeMillis() > loopDeadline) break
-
-                val switched = withTimeoutOrNull(5_000L) {
-                    webView.evalJs(
-                        """
-                        (function(){
-                            var el = document.getElementById('changeServer');
-                            if(!el) return false;
-                            el.value = ${server.toJsStringLiteral()};
-                            el.dispatchEvent(new Event('change', {bubbles:true}));
-                            return true;
-                        })();
-                        """.trimIndent()
-                    )
-                }
-                if (switched?.contains("true") != true) continue
-
-                delay(3500)
-
-                val rawHtml = withTimeoutOrNull(5_000L) { webView.evalJs("document.documentElement.outerHTML") }
-                val html = rawHtml?.let { tryParseJson<String>(it) }
-                if (!html.isNullOrBlank()) {
-                    snapshots[server] = html
-                }
-            }
-
-            if (snapshots.isEmpty()) {
-                cachedCookies = null
+                invokeLocalSource(link, server, headers, subtitleCallback, callback)
             } else {
-                runCatching { cookieManager.getCookie(mainUrl) }.getOrNull()
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { cachedCookies = it }
+                val request = app.post(
+                    link,
+                    data = mapOf("authorization" to getAuth()),
+                    referer = data,
+                    headers = headers,
+                    cookies = cookies
+                )
+                delay(2000)
+                request.document.select("div.iframe-container iframe").attr("src").let { videoUrl ->
+                    loadExtractor(fixUrl(videoUrl), "$mainUrl/", subtitleCallback, callback)
+                }
             }
-        } catch (_: Throwable) {
+        }
+
+        return true
+    }
+
+    private suspend fun getAssets(bpjs: String?): Assets {
+        val env = app.get("$mainUrl/assets/js/$bpjs.js").text
+        val MIX_PREFIX_AUTH_ROUTE_PARAM =
+            env.substringAfter("MIX_PREFIX_AUTH_ROUTE_PARAM: '").substringBefore("',")
+        val MIX_AUTH_ROUTE_PARAM =
+            env.substringAfter("MIX_AUTH_ROUTE_PARAM: '").substringBefore("',")
+        val MIX_AUTH_KEY = env.substringAfter("MIX_AUTH_KEY: '").substringBefore("',")
+        val MIX_AUTH_TOKEN = env.substringAfter("MIX_AUTH_TOKEN: '").substringBefore("',")
+        val MIX_PAGE_TOKEN_KEY = env.substringAfter("MIX_PAGE_TOKEN_KEY: '").substringBefore("',")
+        val MIX_STREAM_SERVER_KEY =
+            env.substringAfter("MIX_STREAM_SERVER_KEY: '").substringBefore("',")
+        return Assets(
+            MIX_PREFIX_AUTH_ROUTE_PARAM,
+            MIX_AUTH_ROUTE_PARAM,
+            MIX_AUTH_KEY,
+            MIX_AUTH_TOKEN,
+            MIX_PAGE_TOKEN_KEY,
+            MIX_STREAM_SERVER_KEY
+        )
+    }
+
+    suspend fun getAuth(): String {
+        val currentTime = System.currentTimeMillis()
+        if (authorization == null || (currentTime - authFetchTime > AUTH_EXPIRY_MS)) {
+            authorization = fetchAuth()
+            authFetchTime = currentTime
+        }
+        return authorization!!
+    }
+
+    suspend fun fetchAuth(): String {
+        val url = "$mainUrl/storage/leviathan.js?v=512"
+        val jsCode = app.get(url).text
+        
+        val quickJs = QuickJs.create()
+        return try {
+            val honeypot = """
+                var window = {};
+                var document = {};
+                var interceptedToken = "";
+                
+                var ${'$'} = function(req) {
+                    if (req && req.headers && req.headers.Authorization) {
+                        interceptedToken = req.headers.Authorization;
+                    }
+                };
+                ${'$'}.ajax = ${'$'};
+                
+                var fetch = function(url, options) {
+                    if (options && options.headers && options.headers.Authorization) {
+                        interceptedToken = options.headers.Authorization;
+                    }
+                    return Promise.resolve({});
+                };
+                
+                try {
+                    ${jsCode}
+                } catch(e) {}
+                
+                for (var key in window) {
+                    if (typeof window[key] === 'function') {
+                        try { window[key]('http://dummy', 'GET', {}); } catch(e) {}
+                    }
+                }
+                
+                interceptedToken.replace('Bearer ', '').trim();
+            """.trimIndent()
+            
+            val token = quickJs.evaluate(honeypot) as? String
+            
+            if (token.isNullOrEmpty()) {
+                throw ErrorLoadingException("Honeypot failed to capture token from leviathan.js")
+            }
+            
+            token
+        } catch (e: Exception) {
+            throw ErrorLoadingException("Failed to execute QuickJS: ${e.message}")
         } finally {
-            webView.stopLoading()
-            webView.destroy()
-        }
-
-        return snapshots
-    }
-
-    private suspend fun readServerList(webView: WebView): List<String> {
-        val raw = withTimeoutOrNull(5_000L) {
-            webView.evalJs(
-                "JSON.stringify(Array.from(document.querySelectorAll('#changeServer option')).map(function(o){return o.value}))"
-            )
-        }
-        val innerJson = raw?.let { tryParseJson<String>(it) }
-        val servers = innerJson?.let { tryParseJson<List<String>>(it) }?.filter { it.isNotBlank() }
-        return if (servers.isNullOrEmpty()) listOf("kuramadrive") else servers
-    }
-
-    private fun String.toJsStringLiteral(): String =
-        "\"" + this.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-
-    private suspend fun WebView.evalJs(script: String): String? = suspendCancellableCoroutine { cont ->
-        try {
-            evaluateJavascript(script) { result ->
-                if (cont.isActive) cont.resume(result) {}
-            }
-        } catch (_: Throwable) {
-            if (cont.isActive) cont.resume(null) {}
+            quickJs.close()
         }
     }
+
+    private fun randomId(length: Int = 6): String {
+        val allowedChars = ('a'..'z') + ('A'..'Z') + ('0'..'9')
+        return (1..length)
+            .map { allowedChars.random() }
+            .joinToString("")
+    }
+
+    data class Assets(
+        val MIX_PREFIX_AUTH_ROUTE_PARAM: String?,
+        val MIX_AUTH_ROUTE_PARAM: String?,
+        val MIX_AUTH_KEY: String?,
+        val MIX_AUTH_TOKEN: String?,
+        val MIX_PAGE_TOKEN_KEY: String?,
+        val MIX_STREAM_SERVER_KEY: String?,
+    )
 }
