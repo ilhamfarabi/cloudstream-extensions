@@ -1,4 +1,4 @@
-import com.android.build.api.dsl.LibraryExtension
+import com.android.build.gradle.BaseExtension
 import com.lagradost.cloudstream3.gradle.CloudstreamExtension
 import org.gradle.kotlin.dsl.register
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -12,9 +12,9 @@ buildscript {
     }
 
     dependencies {
-        classpath("com.android.tools.build:gradle:9.2.1")
+        classpath("com.android.tools.build:gradle:8.13.2")
         classpath("com.github.recloudstream:gradle:-SNAPSHOT")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.0")
     }
 }
 
@@ -27,10 +27,12 @@ allprojects {
 }
 
 fun Project.cloudstream(configuration: CloudstreamExtension.() -> Unit) = extensions.getByName<CloudstreamExtension>("cloudstream").configuration()
-fun Project.android(configuration: LibraryExtension.() -> Unit) = extensions.getByName<LibraryExtension>("android").configuration()
+
+fun Project.android(configuration: BaseExtension.() -> Unit) = extensions.getByName<BaseExtension>("android").configuration()
 
 subprojects {
     apply(plugin = "com.android.library")
+    apply(plugin = "kotlin-android")
     apply(plugin = "com.lagradost.cloudstream3.gradle")
 
     cloudstream {
@@ -40,16 +42,19 @@ subprojects {
 
     android {
         namespace = "com.miku"
-        compileSdk = 35 
 
         defaultConfig {
             minSdk = 21
+            compileSdkVersion(35)
+            targetSdk = 35
+
         }
 
         compileOptions {
             sourceCompatibility = JavaVersion.VERSION_1_8
             targetCompatibility = JavaVersion.VERSION_1_8
         }
+
 
         tasks.withType<KotlinJvmCompile> {
             compilerOptions {
@@ -65,8 +70,8 @@ subprojects {
     }
 
     dependencies {
-        val implementation = configurations.getByName("implementation")
-        val cloudstream = configurations.getByName("cloudstream")
+        val implementation by configurations
+        val cloudstream by configurations
         
         // Cloudstream dependencies
         cloudstream("com.lagradost:cloudstream3:pre-release")
@@ -76,13 +81,13 @@ subprojects {
         implementation("com.github.Blatzar:NiceHttp:0.4.18")
         implementation("org.jsoup:jsoup:1.22.2")
         implementation("androidx.annotation:annotation:1.10.0")
-        implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.22.0")
+        implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.20.1")
         implementation("com.fasterxml.jackson.core:jackson-databind:2.22.0")
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-        implementation("org.mozilla:rhino:1.9.1")
+        implementation("org.mozilla:rhino:1.9.0")
         implementation("me.xdrop:fuzzywuzzy:1.4.0")
         implementation("com.google.code.gson:gson:2.14.0")
-        implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+        implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
         implementation("com.github.vidstige:jadb:v1.3.0")
         implementation("org.bouncycastle:bcpkix-jdk15on:1.70")
     }
