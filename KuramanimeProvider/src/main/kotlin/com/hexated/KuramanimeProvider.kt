@@ -27,7 +27,7 @@ class KuramanimeProvider : MainAPI() {
     
     var authorization: String? = null
     private var authFetchTime: Long = 0L
-    private val AUTH_EXPIRY_MS = 3600000L // Token refresh setiap 1 Jam (3.600.000 ms)
+    private val AUTH_EXPIRY_MS = 3600000L 
 
     override val supportedTypes = setOf(
         TvType.Anime,
@@ -315,47 +315,67 @@ class KuramanimeProvider : MainAPI() {
         
         val quickJs = QuickJs.create()
         return try {
-            val honeypot = """
-                var window = {};
-                var document = {};
-                var interceptedToken = "";
-                
-                var ${'$'} = function(req) {
-                    if (req && req.headers && req.headers.Authorization) {
-                        interceptedToken = req.headers.Authorization;
-                    }
+            val domain = mainUrl.removePrefix("https://").removePrefix("http://")
+            quickJs.evaluate("""
+                var window = globalThis;
+                window.location = { 
+                    href: "$mainUrl/", 
+                    hostname: "$domain", 
+                    host: "$domain",
+                    protocol: "https:",
+                    origin: "$mainUrl"
                 };
-                ${'$'}.ajax = ${'$'};
+                var location = window.location;
+                window.navigator = { 
+                    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" 
+                };
+                var navigator = window.navigator;
+                window.document = { cookie: "" };
+                var document = window.document;
+                
+                var interceptedToken = "";
                 
                 var fetch = function(url, options) {
                     if (options && options.headers && options.headers.Authorization) {
                         interceptedToken = options.headers.Authorization;
                     }
-                    return Promise.resolve({});
+                    return { then: function(){ return this; }, catch: function(){ return this; } };
                 };
+                window.fetch = fetch;
                 
-                try {
-                    ${jsCode}
-                } catch(e) {}
-                
+                var ${'$'} = {
+                    ajax: function(req) {
+                        if (req && req.headers && req.headers.Authorization) {
+                            interceptedToken = req.headers.Authorization;
+                        }
+                    }
+                };
+                window.${'$'} = ${'$'};
+            """.trimIndent())
+            
+            try {
+                quickJs.evaluate(jsCode)
+            } catch (e: Exception) {
+            }
+            
+            val token = quickJs.evaluate("""
                 for (var key in window) {
-                    if (typeof window[key] === 'function') {
-                        try { window[key]('http://dummy', 'GET', {}); } catch(e) {}
+                    if (typeof window[key] === 'function' && key !== 'fetch') {
+                        try {
+                            window[key]('http://dummy', 'GET', {});
+                        } catch(e) {}
                     }
                 }
-                
                 interceptedToken.replace('Bearer ', '').trim();
-            """.trimIndent()
-            
-            val token = quickJs.evaluate(honeypot) as? String
+            """.trimIndent()) as? String
             
             if (token.isNullOrEmpty()) {
-                throw ErrorLoadingException("Honeypot failed to capture token from leviathan.js")
+                throw ErrorLoadingException("Honeypot failed")
             }
             
             token
         } catch (e: Exception) {
-            throw ErrorLoadingException("Failed to execute QuickJS: ${e.message}")
+            throw ErrorLoadingException(e.message)
         } finally {
             quickJs.close()
         }
