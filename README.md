@@ -47,7 +47,6 @@
 | 25 | **OtakuDesu** | 🇮🇩 ID | 🌸 Anime |
 | 26 | **PencuriMovie** | 🇮🇩 ID | 🎬 Movies & Series |
 | 27 | **Samehadaku** | 🇮🇩 ID | 🌸 Anime |
-| 28 | **Winbu** | 🇮🇩 ID | 🌸 Anime, 🎬 Movies & Series |
 
 > [!WARNING]
 > **Disclaimer & Legal Notice**
