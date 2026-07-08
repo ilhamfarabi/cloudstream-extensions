@@ -13,7 +13,7 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import java.util.concurrent.atomic.AtomicReference
 
-class CloudflareInterceptor(private val targetCookie: String = "__cf_chl_tk") : Interceptor {
+class CloudflareInterceptor(private val targetCookie: String = "_cc_id") : Interceptor {
 
     @SuppressLint("SetJavaScriptEnabled", "WebViewClientOnReceivedSslError")
     override fun intercept(chain: Interceptor.Chain): Response {
