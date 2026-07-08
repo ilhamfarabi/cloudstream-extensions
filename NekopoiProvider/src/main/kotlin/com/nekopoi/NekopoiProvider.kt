@@ -7,7 +7,6 @@ import com.lagradost.nicehttp.Requests
 import com.lagradost.nicehttp.Session
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import org.jsoup.nodes.Element
 import java.net.URI
 
@@ -264,23 +263,21 @@ class NekopoiProvider : MainAPI() {
                 res.select("div.nk-player-frame iframe").amap { iframe ->
                     val src = iframe.attr("src").takeIf { it.isNotBlank() } ?: return@amap
                     
-                    withTimeoutOrNull(15_000) {
-                        val loaded = loadExtractor(src, "$mainUrl/", subtitleCallback) { link ->
-                            runBlocking {
-                                callback.invoke(
-                                    newExtractorLink(link.name, link.name, link.url, link.type) {
-                                        referer = link.referer
-                                        this.quality = link.quality
-                                        headers = link.headers
-                                        extractorData = link.extractorData
-                                    }
-                                )
-                            }
+                    val loaded = loadExtractor(src, "$mainUrl/", subtitleCallback) { link ->
+                        runBlocking {
+                            callback.invoke(
+                                newExtractorLink(link.name, link.name, link.url, link.type) {
+                                    referer = link.referer
+                                    this.quality = link.quality
+                                    headers = link.headers
+                                    extractorData = link.extractorData
+                                }
+                            )
                         }
-                        
-                        if (!loaded) {
-                            extractCustomHost(src, subtitleCallback, callback, Qualities.Unknown.value)
-                        }
+                    }
+                    
+                    if (!loaded) {
+                        extractCustomHost(src, subtitleCallback, callback, Qualities.Unknown.value)
                     }
                 }
             },
@@ -288,25 +285,22 @@ class NekopoiProvider : MainAPI() {
                 res.select("div.nk-download-row").amap { row ->
                     val qualityStr = row.selectFirst("div.nk-download-name")?.text()
                     val qualityInt = getIndexQuality(qualityStr)
-                    
-                    val rawQuality = Regex("""(?i)\[(\d+[pk])]""").find(qualityStr ?: "")?.groupValues?.getOrNull(1)?.uppercase()
-                    val qualitySuffix = if (!rawQuality.isNullOrBlank()) " - $rawQuality" else ""
 
                     row.select("div.nk-download-links a").amap { a ->
                         val linkName = a.text().trim()
                         val ouoUrl = a.attr("href")
 
                         if (ouoUrl.contains("ouo.io") || ouoUrl.contains("ouo.press")) {
-                            val realUrl = withTimeoutOrNull(15_000) { bypassOuo(ouoUrl) } ?: return@amap
+                            val realUrl = bypassOuo(ouoUrl) ?: return@amap
                             
                             if (linkName.equals("Mirror", ignoreCase = true)) {
-                                val bypassedAds = withTimeoutOrNull(15_000) { bypassMirrored(realUrl) } ?: return@amap
+                                val bypassedAds = bypassMirrored(realUrl) ?: return@amap
                                 bypassedAds.amap ads@{ adsLink ->
                                     val fixedEmbed = fixEmbed(adsLink) ?: return@ads
                                     loadExtractor(fixedEmbed, "$mainUrl/", subtitleCallback) { link ->
                                         runBlocking {
                                             callback.invoke(
-                                                newExtractorLink(link.name, "${link.name}$qualitySuffix", link.url, link.type) {
+                                                newExtractorLink(link.name, link.name, link.url, link.type) {
                                                     referer = link.referer
                                                     this.quality = if (link.type == ExtractorLinkType.M3U8) link.quality else qualityInt
                                                     headers = link.headers
@@ -320,7 +314,7 @@ class NekopoiProvider : MainAPI() {
                                 loadExtractor(realUrl, "$mainUrl/", subtitleCallback) { link ->
                                     runBlocking {
                                         callback.invoke(
-                                            newExtractorLink(link.name, "${link.name}$qualitySuffix", link.url, link.type) {
+                                            newExtractorLink(link.name, link.name, link.url, link.type) {
                                                 referer = link.referer
                                                 this.quality = if (link.type == ExtractorLinkType.M3U8) link.quality else qualityInt
                                                 headers = link.headers
