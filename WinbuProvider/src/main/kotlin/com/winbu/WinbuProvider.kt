@@ -15,7 +15,6 @@ import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.httpsify
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import com.lagradost.cloudstream3.network.CloudflareKiller
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -33,7 +32,7 @@ class WinbuProvider : MainAPI() {
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.Movie, TvType.Anime, TvType.TvSeries)
 
-    private val interceptor by lazy { CloudflareKiller() }
+    private val interceptor by lazy { CloudflareInterceptor() }
 
     data class FiledonPage(val props: FiledonProps? = null)
     data class FiledonProps(val url: String? = null, val files: FiledonFile? = null)
