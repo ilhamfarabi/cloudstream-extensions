@@ -1,14 +1,5 @@
 package com.nekopoi
 
-import android.annotation.SuppressLint
-import android.net.http.SslError
-import android.os.Handler
-import android.os.Looper
-import android.webkit.CookieManager
-import android.webkit.SslErrorHandler
-import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.nicehttp.NiceResponse
@@ -17,144 +8,8 @@ import com.lagradost.nicehttp.Session
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
-import okhttp3.Interceptor
-import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.net.URI
-
-class JwtSessionInterceptor(private val targetCookie: String = "sl_jwt_session") : Interceptor {
-    @SuppressLint("SetJavaScriptEnabled")
-    override fun intercept(chain: Interceptor.Chain): Response {
-        val originalRequest = chain.request()
-        val url = originalRequest.url.toString()
-        val domainUrl = "${originalRequest.url.scheme}://${originalRequest.url.host}"
-        
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.setAcceptCookie(true)
-
-        val standardUserAgent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36"
-
-        var currentCookies = cookieManager.getCookie(domainUrl) ?: ""
-        var needsRefresh = false
-        var initialResponse: Response? = null
-
-        if (currentCookies.contains(targetCookie)) {
-            val requestBuilder = originalRequest.newBuilder()
-                .removeHeader("User-Agent")
-                .addHeader("User-Agent", standardUserAgent)
-                .removeHeader("Cookie")
-                .addHeader("Cookie", currentCookies)
-
-            initialResponse = chain.proceed(requestBuilder.build())
-
-            if (initialResponse.code in listOf(403, 503, 202)) {
-                needsRefresh = true
-                initialResponse.close()
-            } else {
-                return initialResponse
-            }
-        } else {
-            needsRefresh = true
-        }
-
-        if (needsRefresh) {
-            val context = CloudStreamApp.context
-            if (context != null) {
-                val handler = Handler(Looper.getMainLooper())
-                var webView: WebView? = null
-                var isResolved = false
-
-                handler.post {
-                    try {
-                        val newWebView = WebView(context)
-                        webView = newWebView
-
-                        cookieManager.setAcceptThirdPartyCookies(newWebView, true)
-
-                        newWebView.settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            databaseEnabled = true
-                            useWideViewPort = true
-                            loadWithOverviewMode = true
-                            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                            userAgentString = standardUserAgent
-                        }
-                        
-                        newWebView.clearCache(true)
-                        newWebView.clearHistory()
-                        
-                        newWebView.webChromeClient = WebChromeClient()
-                        newWebView.webViewClient = object : WebViewClient() {
-                            @SuppressLint("WebViewClientOnReceivedSslError")
-                            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-                                handler?.proceed() 
-                            }
-
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                super.onPageFinished(view, url)
-                                val checkCookies = cookieManager.getCookie(domainUrl) ?: ""
-                                if (checkCookies.contains(targetCookie) && checkCookies.contains("sl_jwt_sign")) {
-                                    isResolved = true
-                                }
-                            }
-                        }
-
-                        val safeLineCookies = listOf("sl-challenge-jwt", "sl-challenge-server", "sl-session", "sl_jwt_session", "sl_jwt_sign", "comentario_commenter_session")
-                        safeLineCookies.forEach { cookie ->
-                            cookieManager.setCookie(domainUrl, "$cookie=; Max-Age=0")
-                        }
-                        cookieManager.flush()
-
-                        newWebView.loadUrl(url)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-
-                var attempts = 0
-                val maxAttempts = 25 
-                while (attempts < maxAttempts) {
-                    Thread.sleep(1000)
-                    val checkCookies = cookieManager.getCookie(domainUrl) ?: ""
-
-                    if ((checkCookies.contains(targetCookie) && checkCookies.contains("sl_jwt_sign")) || isResolved) {
-                        cookieManager.flush()
-                        break
-                    }
-                    attempts++
-                }
-
-                handler.post {
-                    try {
-                        webView?.stopLoading()
-                        webView?.destroy()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            }
-
-            currentCookies = cookieManager.getCookie(domainUrl) ?: ""
-            
-            val newRequestBuilder = originalRequest.newBuilder()
-                .removeHeader("User-Agent")
-                .addHeader("User-Agent", standardUserAgent)
-                .removeHeader("Cookie")
-                .addHeader("Cookie", currentCookies)
-
-            return chain.proceed(newRequestBuilder.build())
-        }
-
-        val finalRequest = originalRequest.newBuilder()
-            .removeHeader("User-Agent")
-            .addHeader("User-Agent", standardUserAgent)
-            .build()
-            
-        return initialResponse ?: chain.proceed(finalRequest)
-    }
-}
 
 class NekopoiProvider : MainAPI() {
     override var mainUrl = "https://nekopoi.care"
@@ -163,7 +18,7 @@ class NekopoiProvider : MainAPI() {
     override var lang = "id"
     
     private val fetch by lazy { 
-        Session(app.baseClient.newBuilder().addInterceptor(JwtSessionInterceptor()).build()) 
+        Session(app.baseClient) 
     }
     
     override val supportedTypes = setOf(
@@ -173,7 +28,7 @@ class NekopoiProvider : MainAPI() {
     override val vpnStatus = VPNStatus.MightBeNeeded
 
     companion object {
-        val session = Session(Requests().baseClient.newBuilder().addInterceptor(JwtSessionInterceptor()).build())
+        val session = Session(Requests().baseClient)
         
         val mirrorBlackList = arrayOf(
             "MegaupNet", "DropApk", "Racaty", "ZippyShare",
