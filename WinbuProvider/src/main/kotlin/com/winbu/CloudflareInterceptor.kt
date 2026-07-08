@@ -27,14 +27,14 @@ class CloudflareInterceptor(
         cookieManager.setAcceptCookie(true)
 
         val existingCookies = cookieManager.getCookie(domainUrl) ?: ""
-        
+
         if (existingCookies.contains(targetCookie)) {
             val response = chain.proceed(
                 originalRequest.newBuilder()
                     .header("Cookie", existingCookies)
                     .build()
             )
-            
+
             if (response.code in listOf(403, 503, 429)) {
                 response.close()
                 cookieManager.setCookie(domainUrl, "$targetCookie=; Max-Age=0; path=/; Secure")
@@ -63,7 +63,7 @@ class CloudflareInterceptor(
                 databaseEnabled = true
                 loadWithOverviewMode = true
                 useWideViewPort = true
-                
+
                 val ua = userAgentRef.get()
                 if (ua.isNotBlank()) userAgentString = ua
             }
@@ -90,13 +90,11 @@ class CloudflareInterceptor(
             wv.loadUrl(url)
         }
 
-        var cookieAcquired = false
         for (i in 0 until 45) {
             Thread.sleep(1000)
             val cookies = cookieManager.getCookie(domainUrl) ?: ""
             if (cookies.contains(targetCookie)) {
                 cookieManager.flush()
-                cookieAcquired = true
                 break
             }
         }
