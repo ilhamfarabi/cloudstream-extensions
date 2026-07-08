@@ -167,7 +167,7 @@ class NekopoiProvider : MainAPI() {
 
         var poster = fixUrlNull(document.selectFirst("div.nk-featured-img img, div.imgdesc img, div.thm img")?.attr("src"))
         if (poster == null) {
-            val bgStyle = document.selectFirst("div.nk-thumb-crop, div.nk-post-thumb, div.nk-series-thumb")?.attr("style")
+            val bgStyle = document.selectFirst("div.nk-series-poster, div.nk-thumb-crop, div.nk-post-thumb, div.nk-series-thumb")?.attr("style")
             poster = fixUrlNull(Regex("""url\('([^']+)'\)""").find(bgStyle ?: "")?.groupValues?.getOrNull(1))
         }
 
