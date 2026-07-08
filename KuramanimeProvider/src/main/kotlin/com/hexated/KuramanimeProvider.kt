@@ -2,6 +2,7 @@ package com.hexated
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.lagradost.cloudstream3.*
@@ -41,6 +42,9 @@ class KuramanimeProvider : MainAPI() {
     companion object {
         private const val MOBILE_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+
+        private var cachedCookies: String? = null
+        private const val SEED_COOKIES = ""
 
         fun getType(t: String, s: Int): TvType {
             return if (t.contains("OVA", true) || t.contains("Special")) TvType.OVA
@@ -230,7 +234,7 @@ class KuramanimeProvider : MainAPI() {
 
         return found
     }
-
+    
     private suspend fun captureServerSnapshots(context: Context, url: String): Map<String, String> {
         val snapshots = linkedMapOf<String, String>()
         val webView = try {
@@ -246,17 +250,32 @@ class KuramanimeProvider : MainAPI() {
                 userAgentString = MOBILE_USER_AGENT
             }
 
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.setAcceptCookie(true)
+            cookieManager.setAcceptThirdPartyCookies(webView, true)
+            val seed = cachedCookies ?: SEED_COOKIES
+            if (seed.isNotBlank()) {
+                seed.split(";").forEach { pair ->
+                    val trimmed = pair.trim()
+                    if (trimmed.isNotEmpty()) cookieManager.setCookie(mainUrl, trimmed)
+                }
+                cookieManager.flush()
+            }
+
             val loaded = withTimeoutOrNull(25_000L) {
                 suspendCancellableCoroutine<Unit> { cont ->
                     webView.webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, finishedUrl: String?) {
-                            if (cont.isActive) cont.resume(Unit)
+                            if (cont.isActive) cont.resume(Unit) {}
                         }
                     }
                     webView.loadUrl(url)
                 }
             }
-            if (loaded == null) return snapshots
+            if (loaded == null) {
+                cachedCookies = null
+                return snapshots
+            }
 
             delay(3000)
 
@@ -289,6 +308,14 @@ class KuramanimeProvider : MainAPI() {
                     snapshots[server] = html
                 }
             }
+
+            if (snapshots.isEmpty()) {
+                cachedCookies = null
+            } else {
+                runCatching { cookieManager.getCookie(mainUrl) }.getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { cachedCookies = it }
+            }
         } catch (_: Throwable) {
         } finally {
             webView.stopLoading()
@@ -315,10 +342,10 @@ class KuramanimeProvider : MainAPI() {
     private suspend fun WebView.evalJs(script: String): String? = suspendCancellableCoroutine { cont ->
         try {
             evaluateJavascript(script) { result ->
-                if (cont.isActive) cont.resume(result)
+                if (cont.isActive) cont.resume(result) {}
             }
         } catch (_: Throwable) {
-            if (cont.isActive) cont.resume(null)
+            if (cont.isActive) cont.resume(null) {}
         }
     }
 }
