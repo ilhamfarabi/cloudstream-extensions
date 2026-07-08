@@ -64,7 +64,7 @@ class IdlixProvider : MainAPI() {
         "$mainUrl/api/browse?page=%d&limit=36&sort=latest&network=hbo" to "HBO",
         "$mainUrl/api/browse?page=%d&limit=36&sort=latest&network=prime-video" to "Prime Video",
         "$mainUrl/api/browse?page=%d&limit=36&sort=latest&network=disney-plus" to "Disney+",
-        "$mainUrl/api/browse?page=%d&limit=36&sort=latest&network=apple-tv-plus" to "Apple TV+",
+        "$mainUrl/api/browse?page=%d&limit=36&sort=latest&network=apple-tv-plus" to "Apple TV+"
     )
 
     override suspend fun getMainPage(
@@ -269,7 +269,7 @@ class IdlixProvider : MainAPI() {
                 this.score = Score.from10(rating?.toString())
                 addActors(actors)
                 addTrailer(trailer)
-                addTMDbId(data.tmdbId)
+                addTMDbId(data.tmdbId?.toString())
                 addImdbId(data.imdbId)
                 this.recommendations = recommendations
             }
@@ -287,7 +287,7 @@ class IdlixProvider : MainAPI() {
                 this.score = Score.from10(rating?.toString())
                 addActors(actors)
                 addTrailer(trailer)
-                addTMDbId(data.tmdbId)
+                addTMDbId(data.tmdbId?.toString())
                 addImdbId(data.imdbId)
                 this.recommendations = recommendations
             }
