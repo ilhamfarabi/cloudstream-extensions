@@ -7,7 +7,7 @@ on:
 
 jobs:
   grab-token:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest # Changed to Windows to bypass Cloudflare IP blocks
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -25,7 +25,6 @@ jobs:
       - name: Run Scraper
         run: node scraper.js
 
-      # Upload screenshot artifact if node scraper.js FAILS (exit code 1)
       - name: Upload Error Screenshot
         if: failure()
         uses: actions/upload-artifact@v4
@@ -35,6 +34,7 @@ jobs:
 
       - name: Commit & Push Token to Repo
         if: success()
+        shell: bash
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'

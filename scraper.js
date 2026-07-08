@@ -5,10 +5,15 @@ const fs = require('fs');
 puppeteer.use(StealthPlugin());
 
 (async () => {
+    // Launch REAL browser (headless: false) on Windows server to fool Cloudflare
     const browser = await puppeteer.launch({ 
-        headless: "new", 
-        // Add window size to ensure the page renders properly
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1280,720'] 
+        headless: false, 
+        args: [
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--window-size=1280,720',
+            '--disable-blink-features=AutomationControlled'
+        ] 
     });
     
     const page = await browser.newPage();
@@ -23,7 +28,7 @@ puppeteer.use(StealthPlugin());
             token = headers['authorization'].replace('Bearer ', '').trim();
         }
         
-        // 2. Check POST Body (Form-Data or JSON)
+        // 2. Check POST Body
         const postData = request.postData();
         if (request.method() === 'POST' && postData) {
             if (postData.includes('authorization=')) {
@@ -44,13 +49,14 @@ puppeteer.use(StealthPlugin());
     console.log('Visiting Kuramanime website...');
     
     try {
+        // Give 90 seconds just in case Cloudflare Turnstile takes time to resolve
         await page.goto('https://v18.kuramanime.ing/anime/5025/grand-blue-season-3/episode/1', { 
             waitUntil: 'networkidle2', 
-            timeout: 60000 
+            timeout: 90000 
         });
         
-        // Wait an extra 5 seconds to let leviathan.js build and send the token
-        await new Promise(r => setTimeout(r, 5000));
+        // Wait an extra 10 seconds for Cloudflare challenge & JS execution
+        await new Promise(r => setTimeout(r, 10000));
         
     } catch (e) {
         console.log('Warning: Navigation timeout, checking if token was captured...');
@@ -61,7 +67,6 @@ puppeteer.use(StealthPlugin());
         console.log(`SUCCESS: Token retrieved -> ${token.substring(0, 15)}...`);
     } else {
         console.log('FAIL: Token not found.');
-        // Take a screenshot of the browser for debugging purposes
         await page.screenshot({ path: 'error.png', fullPage: true });
         console.log('Failure screenshot saved as error.png');
         process.exit(1);
