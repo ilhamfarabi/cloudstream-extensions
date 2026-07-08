@@ -7,18 +7,36 @@ puppeteer.use(StealthPlugin());
 (async () => {
     const browser = await puppeteer.launch({ 
         headless: "new", 
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+        // Add window size to ensure the page renders properly
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1280,720'] 
     });
     
     const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 720 });
     let token = "";
 
     await page.setRequestInterception(true);
     page.on('request', request => {
+        // 1. Check HTTP Headers
         const headers = request.headers();
-        if (headers['authorization'] && headers['authorization'].includes('Bearer')) {
+        if (headers['authorization']) {
             token = headers['authorization'].replace('Bearer ', '').trim();
-            console.log('Token successfully captured!');
+        }
+        
+        // 2. Check POST Body (Form-Data or JSON)
+        const postData = request.postData();
+        if (request.method() === 'POST' && postData) {
+            if (postData.includes('authorization=')) {
+                const params = new URLSearchParams(postData);
+                if (params.get('authorization')) {
+                    token = params.get('authorization');
+                }
+            } else {
+                try {
+                    const json = JSON.parse(postData);
+                    if (json.authorization) token = json.authorization;
+                } catch(e) {}
+            }
         }
         request.continue();
     });
@@ -30,15 +48,22 @@ puppeteer.use(StealthPlugin());
             waitUntil: 'networkidle2', 
             timeout: 60000 
         });
+        
+        // Wait an extra 5 seconds to let leviathan.js build and send the token
+        await new Promise(r => setTimeout(r, 5000));
+        
     } catch (e) {
-        console.log('Navigation timeout (Ignore if token already received).');
+        console.log('Warning: Navigation timeout, checking if token was captured...');
     }
 
-    if (token) {
+    if (token && token.length > 10) {
         fs.writeFileSync('kurama_token.txt', token);
-        console.log('Token successfully saved to kurama_token.txt');
+        console.log(`SUCCESS: Token retrieved -> ${token.substring(0, 15)}...`);
     } else {
         console.log('FAIL: Token not found.');
+        // Take a screenshot of the browser for debugging purposes
+        await page.screenshot({ path: 'error.png', fullPage: true });
+        console.log('Failure screenshot saved as error.png');
         process.exit(1);
     }
 

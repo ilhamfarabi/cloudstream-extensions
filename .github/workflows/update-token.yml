@@ -9,7 +9,7 @@ jobs:
   grab-token:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repositori
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
       - name: Setup Node.js
@@ -25,10 +25,19 @@ jobs:
       - name: Run Scraper
         run: node scraper.js
 
-      - name: Commit & Push Token ke Repo
+      # Upload screenshot artifact if node scraper.js FAILS (exit code 1)
+      - name: Upload Error Screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshot
+          path: error.png
+
+      - name: Commit & Push Token to Repo
+        if: success()
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add kurama_token.txt
-          git commit -m "Auto-update token Kuramanime" || echo "Token is still the same"
+          git commit -m "Auto-update Kuramanime token" || echo "Token is still the same"
           git push
