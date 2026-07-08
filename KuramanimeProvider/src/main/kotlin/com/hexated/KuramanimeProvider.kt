@@ -1,5 +1,6 @@
 package com.hexated
 
+import app.cash.quickjs.QuickJs
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addAniListId
 import com.lagradost.cloudstream3.LoadResponse.Companion.addMalId
@@ -22,7 +23,7 @@ class KuramanimeProvider : MainAPI() {
     override var sequentialMainPage = true
     override val hasDownloadSupport = true
     
-    var authorization: String? = null
+    var authorization: String? = "kJuHHkaqcBFXiGMHQf6bJw8YAyDcwGD8Ur"
     
     override val supportedTypes = setOf(
         TvType.Anime,
@@ -240,15 +241,67 @@ class KuramanimeProvider : MainAPI() {
     }
 
     suspend fun fetchAuth(): String {
-        val rawUrl = "https://raw.githubusercontent.com/HatsuneMikuUwU/cloudstream-extensions-uwu/refs/heads/master/kurama_token.txt?v=${System.currentTimeMillis()}"
+        val url = "$mainUrl/storage/leviathan.js?v=${System.currentTimeMillis()}"
         
-        val token = app.get(rawUrl).text.trim()
-        
-        if (token.isEmpty() || token.contains("404: Not Found") || token.contains("<!DOCTYPE html>")) {
-            throw ErrorLoadingException("Failed to retrieve token from GitHub. Ensure Actions is running and the URL is correct.")
+        val jsCode = app.get(url, cookies = cookies).text
+
+        if (jsCode.trim().startsWith("<")) {
+            throw ErrorLoadingException("Failed: leviathan.js blocked by Cloudflare (Gets HTML).")
         }
-        
-        return token
+
+        val script = """
+            var window = this;
+            var global = this;
+            var document = { createElement: function() { return {}; } };
+            var navigator = { userAgent: "Mozilla/5.0" };
+            var location = { hostname: "v18.kuramanime.ing", href: "$mainUrl" };
+            
+            var extractedToken = "FAILED_EMPTY";
+
+            var fetch = function(reqUrl, options) {
+                if (options && options.headers && options.headers['Authorization']) {
+                    extractedToken = options.headers['Authorization'];
+                }
+            };
+
+            var $ = function(options) {
+                if (options && options.headers && options.headers['Authorization']) {
+                    extractedToken = options.headers['Authorization'];
+                }
+                return { done: function(){ return this; }, fail: function(){ return this; } };
+            };
+            $.ajax = $;
+            window.$ = $;
+            window.jQuery = $;
+            
+            try {
+                $jsCode
+            } catch(e) {
+                extractedToken = "ERROR_EVAL: " + e.message;
+            }
+
+            if (extractedToken === "FAILED_EMPTY") {
+                for (var key in window) {
+                    if (typeof window[key] === 'function' && key !== 'fetch' && key !== '$' && key !== 'evaluate') {
+                        try {
+                            window[key]('https://dummy', 'GET', "{}");
+                        } catch(e) {}
+                    }
+                }
+            }
+            
+            extractedToken;
+        """.trimIndent()
+
+        val authHeader = QuickJs.create().use { ctx ->
+            ctx.evaluate(script) as String?
+        }
+
+        if (authHeader.isNullOrEmpty() || authHeader.startsWith("FAILED") || authHeader.startsWith("ERROR")) {
+            throw ErrorLoadingException("QuickJs failed to extract token: $authHeader")
+        }
+
+        return authHeader.replace("Bearer ", "", ignoreCase = true).trim()
     }
 
     private fun randomId(length: Int = 6): String {
