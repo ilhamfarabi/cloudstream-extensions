@@ -1,9 +1,13 @@
 package com.hexated
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addAniListId
 import com.lagradost.cloudstream3.LoadResponse.Companion.addMalId
-import com.lagradost.cloudstream3.amap
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
@@ -11,16 +15,11 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
-import org.mozilla.javascript.BaseFunction
-import org.mozilla.javascript.Context
-import org.mozilla.javascript.ContextFactory
-import org.mozilla.javascript.Function
-import org.mozilla.javascript.Scriptable
-import org.mozilla.javascript.ScriptableObject
-import org.mozilla.javascript.Undefined
 import java.util.Calendar
 
 class KuramanimeProvider : MainAPI() {
@@ -31,9 +30,8 @@ class KuramanimeProvider : MainAPI() {
     override var lang = "id"
     override var sequentialMainPage = true
     override val hasDownloadSupport = true
-    
-    var authorization: String? = null
-    
+
+
     override val supportedTypes = setOf(
         TvType.Anime,
         TvType.AnimeMovie,
@@ -41,7 +39,8 @@ class KuramanimeProvider : MainAPI() {
     )
 
     companion object {
-        private var cookies: Map<String, String> = mapOf()
+        private const val MOBILE_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
         fun getType(t: String, s: Int): TvType {
             return if (t.contains("OVA", true) || t.contains("Special")) TvType.OVA
@@ -176,201 +175,150 @@ class KuramanimeProvider : MainAPI() {
         }
     }
 
-    private suspend fun invokeLocalSource(url: String, server: String, headers: Map<String, String>, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val request = app.post(url, data = mapOf("authorization" to getAuth()), headers = headers, cookies = cookies)
-        delay(2000)
-        val document = request.document
-        document.select("video#player > source").map {
-            val link = fixUrl(it.attr("src"))
-            val quality = it.attr("size").toIntOrNull()
-            callback.invoke(newExtractorLink(fixTitle(server), fixTitle(server), link, INFER_TYPE) {
-                this.quality = quality ?: Qualities.Unknown.value
-            })
-        }
-        if (server == "kuramadrive") {
-            document.select("div#animeDownloadLink a").amap {
-                loadExtractor(it.attr("href"), "$mainUrl/", subtitleCallback, callback)
+    @SuppressLint("SetJavaScriptEnabled")
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val context = CloudStreamApp.context ?: return false
+        var found = false
+
+        val snapshots = withTimeoutOrNull(150_000L) {
+            withContext(Dispatchers.Main) {
+                captureServerSnapshots(context, data)
             }
-        }
-    }
+        } ?: emptyMap()
 
-    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val req = app.get(data)
-        val res = req.document
-        cookies = req.cookies
+        snapshots.forEach { (server, html) ->
+            val doc = Jsoup.parse(html, data)
 
-        val token = res.selectFirst("meta[name=csrf-token]")?.attr("content") ?: return false
-        val dataKps = res.selectFirst("div.col-lg-12.mt-3")?.attr("data-kk") ?: return false
+            doc.select("video#player > source").forEach { source ->
+                val link = fixUrl(source.attr("src"))
+                if (link.isBlank()) return@forEach
+                val quality = source.attr("size").toIntOrNull()
+                found = true
+                callback.invoke(newExtractorLink(fixTitle(server), fixTitle(server), link, INFER_TYPE) {
+                    this.quality = quality ?: Qualities.Unknown.value
+                })
+            }
 
-        val assets = getAssets(dataKps)
-        var headers = mapOf(
-            "X-CSRF-TOKEN" to token,
-            "X-Fuck-ID" to "${assets.MIX_AUTH_KEY}:${assets.MIX_AUTH_TOKEN}",
-            "X-Request-ID" to randomId(),
-            "X-Request-Index" to "0",
-            "X-Requested-With" to "XMLHttpRequest",
-        )
+            doc.selectFirst("div.iframe-container iframe")?.attr("src")?.takeIf { it.isNotBlank() }?.let { iframeSrc ->
+                runCatching {
+                    loadExtractor(fixUrl(iframeSrc), "$mainUrl/", subtitleCallback) {
+                        found = true
+                        callback.invoke(it)
+                    }
+                }
+            }
 
-        val tokenRes = app.get("$mainUrl/${assets.MIX_PREFIX_AUTH_ROUTE_PARAM}${assets.MIX_AUTH_ROUTE_PARAM}", headers = headers, cookies = cookies)
-        val tokenKey = tokenRes.text
-        cookies = tokenRes.cookies
-
-        headers = mapOf("X-CSRF-TOKEN" to token, "X-Requested-With" to "XMLHttpRequest")
-
-        res.select("select#changeServer option").amap { source ->
-            val server = source.attr("value")
-            val link = "$data?${assets.MIX_PAGE_TOKEN_KEY}=$tokenKey&${assets.MIX_STREAM_SERVER_KEY}=$server"
             if (server.contains(Regex("(?i)kuramadrive|archive"))) {
-                invokeLocalSource(link, server, headers, subtitleCallback, callback)
-            } else {
-                val request = app.post(link, data = mapOf("authorization" to getAuth()), referer = data, headers = headers, cookies = cookies)
-                delay(2000)
-                request.document.select("div.iframe-container iframe").attr("src").let { videoUrl ->
-                    loadExtractor(fixUrl(videoUrl), "$mainUrl/", subtitleCallback, callback)
-                }
-            }
-        }
-        return true
-    }
-
-    private suspend fun getAssets(bpjs: String?): Assets {
-        val env = app.get("$mainUrl/assets/js/$bpjs.js").text
-        return Assets(
-            env.substringAfter("MIX_PREFIX_AUTH_ROUTE_PARAM: '").substringBefore("',"),
-            env.substringAfter("MIX_AUTH_ROUTE_PARAM: '").substringBefore("',"),
-            env.substringAfter("MIX_AUTH_KEY: '").substringBefore("',"),
-            env.substringAfter("MIX_AUTH_TOKEN: '").substringBefore("',"),
-            env.substringAfter("MIX_PAGE_TOKEN_KEY: '").substringBefore("',"),
-            env.substringAfter("MIX_STREAM_SERVER_KEY: '").substringBefore("',")
-        )
-    }
-
-    suspend fun getAuth(): String {
-        return authorization ?: fetchAuth().also { authorization = it }
-    }
-
-    suspend fun fetchAuth(): String {
-        val url = "$mainUrl/storage/leviathan.js?v=${System.currentTimeMillis()}"
-        val res = app.get(url).text
-        return withContext(Dispatchers.IO) { extractAuthToken(res) } ?: throw ErrorLoadingException()
-    }
-
-    private fun extractAuthToken(rawScript: String): String? {
-        val script = rawScript
-            .replace(Regex("""\basync\s+function"""), "function")
-            .replace(Regex("""\bawait\s+"""), "")
-
-        var captured: String? = null
-
-        fun captureFromOptions(options: Any?) {
-            if (captured != null) return
-            val opts = options as? Scriptable ?: return
-            val headers = ScriptableObject.getProperty(opts, "headers") as? Scriptable ?: return
-            val authVal = ScriptableObject.getProperty(headers, "Authorization")
-            if (authVal != Scriptable.NOT_FOUND && authVal != null) {
-                captured = Context.toString(authVal).removePrefix("Bearer ").trim()
-            }
-        }
-
-        val factory = object : ContextFactory() {
-            override fun observeInstructionCount(cx: Context, instructionCount: Int) {
-                if (Thread.currentThread().isInterrupted) {
-                    throw InterruptedException("aborted")
-                }
-            }
-
-            override fun makeContext(): Context {
-                val cx = super.makeContext()
-                cx.instructionObserverThreshold = 2000
-                return cx
-            }
-        }
-
-        val worker = Thread(null, {
-            val rhino = factory.enterContext()
-            try {
-                rhino.optimizationLevel = -1 // interpreted mode: avoids JVM method-size limits on big scripts + enables the kill switch above
-                rhino.setLanguageVersion(Context.VERSION_ES6)
-                val scope: Scriptable = rhino.initSafeStandardObjects()
-
-                val noop = object : BaseFunction() {
-                    override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any =
-                        Undefined.instance
-                }
-                val fetchStub = object : BaseFunction() {
-                    override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any {
-                        captureFromOptions(args.getOrNull(1))
-                        return Undefined.instance
+                doc.select("div#animeDownloadLink a[href]").forEach { a ->
+                    val href = a.attr("href")
+                    if (href.isNotBlank()) {
+                        runCatching {
+                            loadExtractor(href, "$mainUrl/", subtitleCallback) {
+                                found = true
+                                callback.invoke(it)
+                            }
+                        }
                     }
                 }
-                val ajaxStub = object : BaseFunction() {
-                    override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any {
-                        captureFromOptions(args.getOrNull(0))
-                        return Undefined.instance
-                    }
-                }
-                val dollarStub = object : BaseFunction() {
-                    override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any = scope
-                }
-                ScriptableObject.putProperty(dollarStub, "ajax", ajaxStub)
-
-                scope.put("fetch", scope, fetchStub)
-                scope.put("$", scope, dollarStub)
-                scope.put("setInterval", scope, noop)
-                scope.put("setTimeout", scope, noop)
-                scope.put("clearInterval", scope, noop)
-                scope.put("clearTimeout", scope, noop)
-                scope.put("document", scope, rhino.newObject(scope))
-                scope.put("navigator", scope, rhino.newObject(scope))
-                scope.put("window", scope, scope)
-
-                val preExisting = scope.ids.toSet()
-
-                rhino.evaluateString(scope, script, "leviathan.js", 1, null)
-
-                val dummyOpts = rhino.newObject(scope)
-                val candidateArgs = arrayOf<Any?>(
-                    "$mainUrl/probe", "POST", "json", dummyOpts, noop, noop, noop
-                )
-
-                for (id in scope.ids) {
-                    if (captured != null) break
-                    val name = id as? String ?: continue
-                    if (name in preExisting) continue
-                    val fn = ScriptableObject.getProperty(scope, name) as? Function ?: continue
-                    try {
-                        fn.call(rhino, scope, scope, candidateArgs)
-                    } catch (_: Throwable) {
-                    }
-                }
-            } catch (_: Throwable) {
-            } finally {
-                Context.exit()
             }
-        }, "kuramanime-leviathan-js", 8 * 1024 * 1024)
-
-        worker.isDaemon = true
-        worker.start()
-        worker.join(10_000L)
-        if (worker.isAlive) {
-            worker.interrupt()
-            worker.join(1_000L)
         }
 
-        return captured
+        return found
     }
 
-    private fun randomId(length: Int = 6): String {
-        val allowedChars = ('a'..'z') + ('A'..'Z') + ('0'..'9')
-        return (1..length).map { allowedChars.random() }.joinToString("")
+    private suspend fun captureServerSnapshots(context: Context, url: String): Map<String, String> {
+        val snapshots = linkedMapOf<String, String>()
+        val webView = try {
+            WebView(context)
+        } catch (_: Throwable) {
+            return snapshots
+        }
+
+        try {
+            webView.settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                userAgentString = MOBILE_USER_AGENT
+            }
+
+            val loaded = withTimeoutOrNull(25_000L) {
+                suspendCancellableCoroutine<Unit> { cont ->
+                    webView.webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, finishedUrl: String?) {
+                            if (cont.isActive) cont.resume(Unit)
+                        }
+                    }
+                    webView.loadUrl(url)
+                }
+            }
+            if (loaded == null) return snapshots
+
+            delay(3000)
+
+            val servers = readServerList(webView)
+            val loopDeadline = System.currentTimeMillis() + 100_000L
+
+            for (server in servers) {
+                if (System.currentTimeMillis() > loopDeadline) break
+
+                val switched = withTimeoutOrNull(5_000L) {
+                    webView.evalJs(
+                        """
+                        (function(){
+                            var el = document.getElementById('changeServer');
+                            if(!el) return false;
+                            el.value = ${server.toJsStringLiteral()};
+                            el.dispatchEvent(new Event('change', {bubbles:true}));
+                            return true;
+                        })();
+                        """.trimIndent()
+                    )
+                }
+                if (switched?.contains("true") != true) continue
+
+                delay(3500)
+
+                val rawHtml = withTimeoutOrNull(5_000L) { webView.evalJs("document.documentElement.outerHTML") }
+                val html = rawHtml?.let { tryParseJson<String>(it) }
+                if (!html.isNullOrBlank()) {
+                    snapshots[server] = html
+                }
+            }
+        } catch (_: Throwable) {
+        } finally {
+            webView.stopLoading()
+            webView.destroy()
+        }
+
+        return snapshots
     }
 
-    data class Assets(
-        val MIX_PREFIX_AUTH_ROUTE_PARAM: String?,
-        val MIX_AUTH_ROUTE_PARAM: String?,
-        val MIX_AUTH_KEY: String?,
-        val MIX_AUTH_TOKEN: String?,
-        val MIX_PAGE_TOKEN_KEY: String?,
-        val MIX_STREAM_SERVER_KEY: String?,
-    )
+    private suspend fun readServerList(webView: WebView): List<String> {
+        val raw = withTimeoutOrNull(5_000L) {
+            webView.evalJs(
+                "JSON.stringify(Array.from(document.querySelectorAll('#changeServer option')).map(function(o){return o.value}))"
+            )
+        }
+        val innerJson = raw?.let { tryParseJson<String>(it) }
+        val servers = innerJson?.let { tryParseJson<List<String>>(it) }?.filter { it.isNotBlank() }
+        return if (servers.isNullOrEmpty()) listOf("kuramadrive") else servers
+    }
+
+    private fun String.toJsStringLiteral(): String =
+        "\"" + this.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+    private suspend fun WebView.evalJs(script: String): String? = suspendCancellableCoroutine { cont ->
+        try {
+            evaluateJavascript(script) { result ->
+                if (cont.isActive) cont.resume(result)
+            }
+        } catch (_: Throwable) {
+            if (cont.isActive) cont.resume(null)
+        }
+    }
 }
