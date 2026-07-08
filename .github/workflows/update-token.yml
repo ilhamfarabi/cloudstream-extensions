@@ -1,0 +1,34 @@
+name: Auto Grab Kuramanime Token
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+jobs:
+  grab-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repositori
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install Puppeteer & Stealth
+        run: |
+          npm init -y
+          npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
+
+      - name: Run Scraper
+        run: node scraper.js
+
+      - name: Commit & Push Token ke Repo
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add kurama_token.txt
+          git commit -m "Auto-update token Kuramanime" || echo "Token is still the same"
+          git push
