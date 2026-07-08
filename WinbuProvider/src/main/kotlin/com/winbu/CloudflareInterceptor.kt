@@ -13,35 +13,29 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import java.util.concurrent.atomic.AtomicReference
 
-class CloudflareInterceptor(
-    private val targetCookie: String = "cf_clearance"
-) : Interceptor {
+class CloudflareInterceptor(private val targetCookie: String = "__cf_chl_tk") : Interceptor {
 
     @SuppressLint("SetJavaScriptEnabled", "WebViewClientOnReceivedSslError")
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
         val url = originalRequest.url.toString()
-        val domainUrl = "\( {originalRequest.url.scheme}:// \){originalRequest.url.host}"
+        val domainUrl = "${originalRequest.url.scheme}://${originalRequest.url.host}"
         val cookieManager = CookieManager.getInstance()
 
         cookieManager.setAcceptCookie(true)
 
         val existingCookies = cookieManager.getCookie(domainUrl) ?: ""
-
         if (existingCookies.contains(targetCookie)) {
             val response = chain.proceed(
                 originalRequest.newBuilder()
                     .header("Cookie", existingCookies)
                     .build()
             )
+            if (response.code != 403 && response.code != 503) return response
 
-            if (response.code in listOf(403, 503, 429)) {
-                response.close()
-                cookieManager.setCookie(domainUrl, "$targetCookie=; Max-Age=0; path=/; Secure")
-                cookieManager.flush()
-            } else {
-                return response
-            }
+            response.close()
+            cookieManager.setCookie(domainUrl, "$targetCookie=; Max-Age=0; path=/; Secure")
+            cookieManager.flush()
         }
 
         val context = CloudStreamApp.context
@@ -63,7 +57,6 @@ class CloudflareInterceptor(
                 databaseEnabled = true
                 loadWithOverviewMode = true
                 useWideViewPort = true
-
                 val ua = userAgentRef.get()
                 if (ua.isNotBlank()) userAgentString = ua
             }
@@ -90,11 +83,13 @@ class CloudflareInterceptor(
             wv.loadUrl(url)
         }
 
-        for (i in 0 until 45) {
+        var cookieAcquired = false
+        for (i in 0 until 60) {
             Thread.sleep(1000)
             val cookies = cookieManager.getCookie(domainUrl) ?: ""
             if (cookies.contains(targetCookie)) {
                 cookieManager.flush()
+                cookieAcquired = true
                 break
             }
         }
