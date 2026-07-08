@@ -1,4 +1,4 @@
-import com.android.build.gradle.LibraryExtension
+import com.android.build.api.dsl.LibraryExtension
 import com.lagradost.cloudstream3.gradle.CloudstreamExtension
 import org.gradle.kotlin.dsl.register
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -40,11 +40,10 @@ subprojects {
 
     android {
         namespace = "com.miku"
+        compileSdk = 35 
 
         defaultConfig {
             minSdk = 21
-            compileSdk = 37
-            targetSdk = 37
         }
 
         compileOptions {
@@ -66,8 +65,8 @@ subprojects {
     }
 
     dependencies {
-        val implementation by configurations
-        val cloudstream by configurations
+        val implementation = configurations.getByName("implementation")
+        val cloudstream = configurations.getByName("cloudstream")
         
         // Cloudstream dependencies
         cloudstream("com.lagradost:cloudstream3:pre-release")
