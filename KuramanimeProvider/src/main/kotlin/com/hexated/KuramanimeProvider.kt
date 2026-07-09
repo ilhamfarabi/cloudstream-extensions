@@ -126,7 +126,13 @@ class KuramanimeProvider : MainAPI() {
         val episodes = mutableListOf<Episode>()
         for (i in 1..30) {
             val doc = if (i == 1) document else app.get("$url?page=$i").document
-            val epsElements = doc.select("div#animeEpisodes a.ep-button, #episodeLists a.btn.btn-sm.btn-danger")
+            
+            val dataContent = doc.select("#episodeLists").attr("data-content")
+            val epsElements = if (dataContent.isNotBlank()) {
+                Jsoup.parse(dataContent).select("a.btn.btn-sm.btn-danger")
+            } else {
+                doc.select("div#animeEpisodes a.ep-button, #episodeLists a.btn.btn-sm.btn-danger")
+            }
             
             if (epsElements.isEmpty() && i > 1) break
             
@@ -135,7 +141,10 @@ class KuramanimeProvider : MainAPI() {
                 val episode = Regex("(?i)ep(?:isode)?\\s*(\\d+)").find(name)?.groupValues?.get(1)?.toIntOrNull() 
                     ?: Regex("(\\d+)").find(name)?.groupValues?.get(1)?.toIntOrNull()
                 val link = fixUrl(it.attr("href"))
-                newEpisode(link) { this.episode = episode }
+                newEpisode(link) { 
+                    this.name = name
+                    this.episode = episode 
+                }
             }
             if (eps.isEmpty()) break else episodes.addAll(eps)
         }
