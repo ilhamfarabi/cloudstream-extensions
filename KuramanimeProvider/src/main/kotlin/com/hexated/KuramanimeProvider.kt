@@ -1,5 +1,6 @@
 package com.hexated
 
+import app.cash.quickjs.QuickJs
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addAniListId
 import com.lagradost.cloudstream3.LoadResponse.Companion.addMalId
@@ -11,6 +12,7 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.delay
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import java.net.URI
 import java.util.Calendar
 
 class KuramanimeProvider : MainAPI() {
@@ -178,8 +180,8 @@ class KuramanimeProvider : MainAPI() {
         }
     }
 
-    private suspend fun invokeLocalSource(url: String, server: String, headers: Map<String, String>, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val request = app.post(url, data = mapOf("authorization" to getAuth()), headers = headers, cookies = cookies)
+    private suspend fun invokeLocalSource(url: String, server: String, headers: Map<String, String>, authScriptUrl: String, refererUrl: String, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
+        val request = app.post(url, data = mapOf("authorization" to getAuth(authScriptUrl, refererUrl)), headers = headers, cookies = cookies)
         delay(2000)
         val document = request.document
         document.select("video#player > source").map {
@@ -203,6 +205,8 @@ class KuramanimeProvider : MainAPI() {
 
         val token = res.selectFirst("meta[name=csrf-token]")?.attr("content") ?: return false
         val dataKps = res.selectFirst("[data-kk]")?.attr("data-kk") ?: return false
+        val tokenAuthUrl = res.selectFirst("input#tokenAuthJs")?.attr("value")
+        val authScriptUrl = if (tokenAuthUrl != null) "$mainUrl$tokenAuthUrl" else "$mainUrl/storage/leviathan.js?v=${System.currentTimeMillis()}"
 
         val assets = getAssets(dataKps)
         var headers = mapOf(
@@ -223,9 +227,9 @@ class KuramanimeProvider : MainAPI() {
             val server = source.attr("value")
             val link = "$data?${assets.MIX_PAGE_TOKEN_KEY}=$tokenKey&${assets.MIX_STREAM_SERVER_KEY}=$server"
             if (server.contains(Regex("(?i)kuramadrive|archive"))) {
-                invokeLocalSource(link, server, headers, subtitleCallback, callback)
+                invokeLocalSource(link, server, headers, authScriptUrl, data, subtitleCallback, callback)
             } else {
-                val request = app.post(link, data = mapOf("authorization" to getAuth()), referer = data, headers = headers, cookies = cookies)
+                val request = app.post(link, data = mapOf("authorization" to getAuth(authScriptUrl, data)), referer = data, headers = headers, cookies = cookies)
                 delay(2000)
                 request.document.select("div.iframe-container iframe").attr("src").let { videoUrl ->
                     loadExtractor(fixUrl(videoUrl), "$mainUrl/", subtitleCallback, callback)
@@ -247,20 +251,78 @@ class KuramanimeProvider : MainAPI() {
         )
     }
 
-    suspend fun getAuth(): String {
-        return authorization ?: fetchAuth().also { authorization = it }
+    suspend fun getAuth(tokenUrl: String, referer: String): String {
+        return authorization ?: fetchAuth(tokenUrl, referer).also { authorization = it }
     }
 
-    suspend fun fetchAuth(): String {
-        val responseText = app.get("$mainUrl/misc/token/refresh-token", cookies = cookies).text
+    suspend fun fetchAuth(tokenUrl: String, referer: String): String {
+        val jsReqHeaders = mapOf(
+            "Accept" to "*/*",
+            "Referer" to referer,
+            "X-Requested-With" to "XMLHttpRequest"
+        )
         
-        val token = Regex(""""token"\s*:\s*"([^"]+)"""").find(responseText)?.groupValues?.get(1)
+        val jsCode = app.get(tokenUrl, headers = jsReqHeaders, cookies = cookies).text
+
+        if (jsCode.trim().startsWith("<")) {
+            throw ErrorLoadingException("Failed: leviathan.js intercepted by Cloudflare. Try disabling your proxy/VPN for a while.")
+        }
         
-        if (token.isNullOrEmpty()) {
-            throw ErrorLoadingException("Failed: Failed to retrieve token from refresh-token endpoint.")
+        val host = URI(mainUrl).host
+
+        val script = """
+            var window = this;
+            var global = this;
+            var document = { createElement: function() { return {}; } };
+            var navigator = { userAgent: "Mozilla/5.0" };
+            var location = { hostname: "$host", href: "$mainUrl" };
+            
+            var extractedToken = "FAILED_EMPTY";
+
+            var fetch = function(reqUrl, options) {
+                if (options && options.headers && options.headers['Authorization']) {
+                    extractedToken = options.headers['Authorization'];
+                }
+            };
+
+            var ${'$'} = function(options) {
+                if (options && options.headers && options.headers['Authorization']) {
+                    extractedToken = options.headers['Authorization'];
+                }
+                return { done: function(){ return this; }, fail: function(){ return this; } };
+            };
+            ${'$'}.ajax = ${'$'};
+            window.${'$'} = ${'$'};
+            window.jQuery = ${'$'};
+            
+            try {
+                $jsCode
+            } catch(e) {
+                extractedToken = "ERROR_EVAL: " + e.message;
+            }
+
+            if (extractedToken === "FAILED_EMPTY") {
+                for (var key in window) {
+                    if (typeof window[key] === 'function' && key !== 'fetch' && key !== '${'$'}' && key !== 'evaluate') {
+                        try {
+                            window[key]('https://dummy', 'GET', "{}");
+                        } catch(e) {}
+                    }
+                }
+            }
+            
+            extractedToken;
+        """.trimIndent()
+
+        val authHeader = QuickJs.create().use { ctx ->
+            ctx.evaluate(script) as String?
         }
 
-        return token
+        if (authHeader.isNullOrEmpty() || authHeader.startsWith("FAILED") || authHeader.startsWith("ERROR")) {
+            throw ErrorLoadingException("QuickJs failed to extract token: $authHeader")
+        }
+
+        return authHeader.replace("Bearer ", "", ignoreCase = true).trim()
     }
 
     private fun randomId(length: Int = 6): String {
