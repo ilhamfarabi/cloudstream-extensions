@@ -281,59 +281,40 @@ class AnimeSailProvider : MainAPI() {
                         }
                     }
 
-                    iframe.contains("player-kodir.aghanim.xyz") || iframe.contains("${playerPath}kodir2") -> {
-                        val res = request(iframe, ref = data).text
-                        var link = Jsoup.parse(res.substringAfter("= `", "").substringBefore("`;", "")).select("source").last()?.attr("src")
-
-                        if (link.isNullOrBlank()) {
-                            link = Jsoup.parse(res).select("source").attr("src")
+                    iframe.contains("${playerPath}framezilla") || iframe.contains("uservideo.xyz") -> {
+                        val bsrc = Regex("""bsrc=(.*?)(&|$)""").find(iframe)?.groupValues?.getOrNull(1)
+                        var innerLink = ""
+                        
+                        if (!bsrc.isNullOrBlank()) {
+                            try {
+                                innerLink = base64Decode(bsrc)
+                            } catch (e: Exception) {
+                            }
                         }
-
-                        if (!link.isNullOrBlank()) {
-                            callback.invoke(
-                                newExtractorLink(
-                                    source = serverName,
-                                    name = serverName,
-                                    url = link,
-                                    type = INFER_TYPE
-                                ) {
-                                    referer = iframe
-                                    this.quality = quality
-                                }
-                            )
+                        
+                        if (innerLink.isBlank()) {
+                            val doc = request(iframe, ref = data).document
+                            innerLink = doc.select("iframe").attr("src")
+                        }
+                        
+                        if (innerLink.isNotBlank()) {
+                            innerLink = fixUrl(innerLink)
+                            if (innerLink.contains(playerPath) || innerLink.contains("player-kodir")) {
+                                extractInternalPlayer(innerLink, data, serverName, quality, callback)
+                            } else {
+                                loadFixedExtractor(innerLink, serverName, quality, mainUrl, subtitleCallback, callback)
+                            }
                         }
                     }
 
-                    iframe.contains("${playerPath}framezilla") || iframe.contains("uservideo.xyz") -> {
-                        val doc = request(iframe, ref = data).document
-                        val innerLink = doc.select("iframe").attr("src")
-                        if (innerLink.isNotBlank()) {
-                            loadFixedExtractor(fixUrl(innerLink), serverName, quality, mainUrl, subtitleCallback, callback)
-                        }
+                    iframe.contains("player-kodir") || iframe.contains("${playerPath}kodir2") || iframe.contains("${playerPath}mega") || iframe.contains("${playerPath}gideo") || iframe.contains(playerPath) -> {
+                        extractInternalPlayer(iframe, data, serverName, quality, callback)
                     }
 
                     iframe.contains("aghanim.xyz/tools/redirect/") -> {
                         val id = iframe.substringAfter("id=").substringBefore("&token")
                         val link = "https://rasa-cintaku-semakin-berantai.xyz/v/$id"
                         loadFixedExtractor(link, serverName, quality, mainUrl, subtitleCallback, callback)
-                    }
-
-                    iframe.contains(playerPath) -> {
-                        val doc = request(iframe, ref = data).document
-                        val link = doc.select("source").attr("src")
-                        if (link.isNotBlank()) {
-                            callback.invoke(
-                                newExtractorLink(
-                                    source = serverName,
-                                    name = serverName,
-                                    url = link,
-                                    type = INFER_TYPE
-                                ) {
-                                    referer = iframe
-                                    this.quality = quality
-                                }
-                            )
-                        }
                     }
 
                     else -> {
@@ -343,6 +324,44 @@ class AnimeSailProvider : MainAPI() {
             }
         }
         return true
+    }
+
+    private suspend fun extractInternalPlayer(
+        url: String,
+        ref: String,
+        serverName: String,
+        quality: Int,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val res = request(url, ref = ref).text
+        
+        var link = Jsoup.parse(res.substringAfter("= `", "").substringBefore("`;", "")).select("source").last()?.attr("src")
+        
+        if (link.isNullOrBlank()) {
+            link = Jsoup.parse(res).select("source").attr("src")
+        }
+        
+        if (link.isNullOrBlank()) {
+            link = Jsoup.parse(res).select("video").attr("src")
+        }
+        
+        if (link.isNullOrBlank()) {
+            link = Regex("""(?:file|src):\s*["']([^"']+)["']""").find(res)?.groupValues?.getOrNull(1)
+        }
+
+        if (!link.isNullOrBlank()) {
+            callback.invoke(
+                newExtractorLink(
+                    source = serverName,
+                    name = serverName,
+                    url = fixUrl(link),
+                    type = INFER_TYPE
+                ) {
+                    referer = url
+                    this.quality = quality
+                }
+            )
+        }
     }
 
     private suspend fun loadFixedExtractor(
