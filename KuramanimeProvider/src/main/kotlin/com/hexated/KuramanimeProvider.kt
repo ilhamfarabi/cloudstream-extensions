@@ -24,7 +24,7 @@ class KuramanimeProvider : MainAPI() {
     override var sequentialMainPage = true
     override val hasDownloadSupport = true
     
-    private var cachedAuth: String? = null
+    var authorization: String? = "kJuHHkaqcBFXiGMHQf6bJw8YAyDcwGD8Ur"
     
     override val supportedTypes = setOf(
         TvType.Anime,
@@ -252,7 +252,7 @@ class KuramanimeProvider : MainAPI() {
     }
 
     suspend fun getAuth(tokenUrl: String, referer: String): String {
-        return cachedAuth ?: fetchAuth(tokenUrl, referer).also { cachedAuth = it }
+        return authorization ?: fetchAuth(tokenUrl, referer).also { authorization = it }
     }
 
     suspend fun fetchAuth(tokenUrl: String, referer: String): String {
@@ -261,13 +261,13 @@ class KuramanimeProvider : MainAPI() {
             "Referer" to referer,
             "X-Requested-With" to "XMLHttpRequest"
         )
-
+        
         val jsCode = app.get(tokenUrl, headers = jsReqHeaders, cookies = cookies).text
 
         if (jsCode.trim().startsWith("<")) {
             throw ErrorLoadingException("Failed: leviathan.js intercepted by Cloudflare. Try disabling your proxy/VPN for a while.")
         }
-
+        
         val host = URI(mainUrl).host
 
         val script = """
@@ -286,38 +286,15 @@ class KuramanimeProvider : MainAPI() {
             };
 
             var ${'$'} = function(options) {
-                if (typeof options === 'object' && options.headers && options.headers['Authorization']) {
+                if (options && options.headers && options.headers['Authorization']) {
                     extractedToken = options.headers['Authorization'];
                 }
-                if (typeof options === 'string' && arguments.length > 1) {
-                    var settings = arguments[1];
-                    if (settings && settings.headers && settings.headers['Authorization']) {
-                        extractedToken = settings.headers['Authorization'];
-                    }
-                }
-                return { 
-                    done: function(){ return this; }, 
-                    fail: function(){ return this; },
-                    always: function(){ return this; }
-                };
+                return { done: function(){ return this; }, fail: function(){ return this; } };
             };
             ${'$'}.ajax = ${'$'};
-            ${'$'}.post = function(url, data, callback) {
-                if (data && data.headers && data.headers['Authorization']) {
-                    extractedToken = data.headers['Authorization'];
-                }
-                return { done: function(){} };
-            };
             window.${'$'} = ${'$'};
             window.jQuery = ${'$'};
-
-            window.submitPaymentDetails = function(cardNumber, cardExpiry, cardCvv, cardHolderName, billingAddress, billingZip, billingPhone) {
-            };
-            window.sendCustomRequest = function(baseUrl, dataString, payload, callback) {
-            };
-            window.sendToGateway = function(url, method, bodyData) {
-            };
-
+            
             try {
                 $jsCode
             } catch(e) {
@@ -326,18 +303,14 @@ class KuramanimeProvider : MainAPI() {
 
             if (extractedToken === "FAILED_EMPTY") {
                 for (var key in window) {
-                    if (typeof window[key] === 'function' && 
-                        key !== 'fetch' && 
-                        key !== '$' && 
-                        key !== 'evaluate' &&
-                        key.indexOf('submit') !== -1) { // prioritas fungsi submit*
+                    if (typeof window[key] === 'function' && key !== 'fetch' && key !== '${'$'}' && key !== 'evaluate') {
                         try {
-                            window[key]('https://dummy', 'POST', "{}");
+                            window[key]('https://dummy', 'GET', "{}");
                         } catch(e) {}
                     }
                 }
             }
-
+            
             extractedToken;
         """.trimIndent()
 
