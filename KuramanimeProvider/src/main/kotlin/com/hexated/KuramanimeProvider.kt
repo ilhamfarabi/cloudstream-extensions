@@ -72,7 +72,7 @@ class KuramanimeProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val document = app.get(request.data + page).document
-        val home = document.select("div#animeList div.product__item").mapNotNull {
+        val home = document.select("div.product__item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(request.name, home)
@@ -90,8 +90,9 @@ class KuramanimeProvider : MainAPI() {
         val href = getProperAnimeLink(fixUrl(this.selectFirst("a")!!.attr("href")))
         val title = this.selectFirst("h5 a")?.text() ?: return null
         val posterUrl = fixUrl(this.select("div.product__item__pic.set-bg").attr("data-setbg"))
+        
         val episode = this.select("div.ep span").text().let {
-            Regex("Ep\\s(\\d+)\\s/").find(it)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            Regex("(?i)ep\\s*(\\d+)").find(it)?.groupValues?.getOrNull(1)?.toIntOrNull()
         }
 
         return newAnimeSearchResponse(title, href, TvType.Anime) {
@@ -101,7 +102,7 @@ class KuramanimeProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        return app.get("$mainUrl/anime?search=$query&order_by=latest").document.select("div#animeList div.product__item").mapNotNull {
+        return app.get("$mainUrl/anime?search=$query&order_by=latest").document.select("div.product__item").mapNotNull {
             it.toSearchResult()
         }
     }
