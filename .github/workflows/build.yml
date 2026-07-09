@@ -53,8 +53,8 @@ jobs:
           DUBBINDO_USERNAME: ${{ secrets.DUBBINDO_USER }}
         run: |
           chmod +x gradlew
-          ./gradlew buildManualCs3 makePluginsJson
-          find . -name "*.cs3" -exec cp {} ${{ github.workspace }}/builds/ \;
+          ./gradlew make makePluginsJson
+          cp **/build/*.cs3 ${{ github.workspace }}/builds/
           cp build/plugins.json ${{ github.workspace }}/builds/
 
       - name: Push builds
