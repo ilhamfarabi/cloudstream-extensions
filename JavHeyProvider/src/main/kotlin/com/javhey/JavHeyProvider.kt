@@ -108,9 +108,7 @@ class JavHeyProvider : MainAPI() {
     ): Boolean = coroutineScope {
         val document = app.get(data, headers = headers).document
 
-        val rawLinks = document.select("[id=links]").mapNotNull { 
-            it.attr("value").takeIf { v -> v.isNotBlank() }
-        }.flatMap { encodedValue ->
+        val rawLinks = document.selectFirst("#links")?.attr("value")?.takeIf { it.isNotBlank() }?.let { encodedValue ->
             try {
                 String(Base64.decode(encodedValue, Base64.DEFAULT))
                     .split(",,,")
@@ -119,21 +117,26 @@ class JavHeyProvider : MainAPI() {
             } catch (e: Exception) {
                 emptyList()
             }
-        }.toSet()
+        } ?: emptyList()
 
-        val streamwishDomains = listOf("minochinos.com", "terbit2.com")
-        val byseDomains = listOf("bysebuho", "bysezejataos", "bysevepoin")
+        val streamwishDomains = listOf(
+            "minochinos.com", "terbit2.com", "hgcloud.to", 
+            "morencius.com", "playmogo.com", "luluvdo.com"
+        )
+        val byseDomains = listOf("bysebuho", "bysezejataos", "bysevepoin", "byse")
 
         rawLinks.forEach { url ->
             launch(Dispatchers.IO) {
                 try {
+                    val uri = URI(url)
+                    val host = uri.host ?: return@launch
+
                     when {
-                        streamwishDomains.any { url.contains(it) } -> {
-                            val fixedUrl = url.replace("minochinos.com", "streamwish.to")
-                                              .replace("terbit2.com", "streamwish.to")
+                        streamwishDomains.any { host.contains(it) } -> {
+                            val fixedUrl = url.replace(host, "streamwish.to")
                             loadExtractor(fixedUrl, data, subtitleCallback, callback)
                         }
-                        byseDomains.any { url.contains(it) } -> {
+                        byseDomains.any { host.contains(it) } -> {
                             ByseSXLocal().getUrl(url, data, subtitleCallback, callback)
                         }
                         else -> {
@@ -173,7 +176,7 @@ open class ByseSXLocal : ExtractorApi() {
     }
 
     private fun getCodeFromUrl(url: String): String {
-        return runCatching { URI(url).path?.trimEnd('/')?.substringAfterLast('/') }.getOrNull() ?: ""
+        return Regex("""/(?:e|v|d)/([a-zA-Z0-9]+)""").find(url)?.groupValues?.get(1) ?: ""
     }
 
     override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
