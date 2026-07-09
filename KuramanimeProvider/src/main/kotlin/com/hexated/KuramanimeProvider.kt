@@ -12,6 +12,7 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.delay
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import java.net.URI
 import java.util.Calendar
 
 class KuramanimeProvider : MainAPI() {
@@ -23,7 +24,7 @@ class KuramanimeProvider : MainAPI() {
     override var sequentialMainPage = true
     override val hasDownloadSupport = true
     
-    var authorization: String? = "kJuHHkaqcBFXiGMHQf6bJw8YAyDcwGD8Ur"
+    var authorization: String? = null
     
     override val supportedTypes = setOf(
         TvType.Anime,
@@ -52,8 +53,7 @@ class KuramanimeProvider : MainAPI() {
     private fun getCurrentSeason(): String {
         val calendar = Calendar.getInstance()
         val year = calendar.get(Calendar.YEAR)
-        val month = calendar.get(Calendar.MONTH)
-        val season = when (month) {
+        val season = when (calendar.get(Calendar.MONTH)) {
             in 0..2 -> "winter"
             in 3..5 -> "spring"
             in 6..8 -> "summer"
@@ -125,15 +125,18 @@ class KuramanimeProvider : MainAPI() {
 
         val episodes = mutableListOf<Episode>()
         for (i in 1..30) {
-            val doc = app.get("$url?page=$i").document
-            val eps = Jsoup.parse(doc.select("#episodeLists").attr("data-content"))
-                .select("a.btn.btn-sm.btn-danger")
-                .mapNotNull {
-                    val name = it.text().trim()
-                    val episode = Regex("(\\d+[.,]?\\d*)").find(name)?.groupValues?.getOrNull(0)?.toIntOrNull()
-                    val link = it.attr("href")
-                    newEpisode(link) { this.episode = episode }
-                }
+            val doc = if (i == 1) document else app.get("$url?page=$i").document
+            val epsElements = doc.select("div#animeEpisodes a.ep-button, #episodeLists a.btn.btn-sm.btn-danger")
+            
+            if (epsElements.isEmpty() && i > 1) break
+            
+            val eps = epsElements.mapNotNull {
+                val name = it.text().trim()
+                val episode = Regex("(?i)ep(?:isode)?\\s*(\\d+)").find(name)?.groupValues?.get(1)?.toIntOrNull() 
+                    ?: Regex("(\\d+)").find(name)?.groupValues?.get(1)?.toIntOrNull()
+                val link = fixUrl(it.attr("href"))
+                newEpisode(link) { this.episode = episode }
+            }
             if (eps.isEmpty()) break else episodes.addAll(eps)
         }
 
@@ -157,7 +160,7 @@ class KuramanimeProvider : MainAPI() {
             posterUrl = tracker?.image ?: poster
             backgroundPosterUrl = tracker?.cover
             this.year = year
-            addEpisodes(DubStatus.Subbed, episodes)
+            addEpisodes(DubStatus.Subbed, episodes.distinctBy { it.data })
             showStatus = status
             plot = description
             this.tags = tags
@@ -167,8 +170,8 @@ class KuramanimeProvider : MainAPI() {
         }
     }
 
-    private suspend fun invokeLocalSource(url: String, server: String, headers: Map<String, String>, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val request = app.post(url, data = mapOf("authorization" to getAuth()), headers = headers, cookies = cookies)
+    private suspend fun invokeLocalSource(url: String, server: String, headers: Map<String, String>, authScriptUrl: String, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
+        val request = app.post(url, data = mapOf("authorization" to getAuth(authScriptUrl)), headers = headers, cookies = cookies)
         delay(2000)
         val document = request.document
         document.select("video#player > source").map {
@@ -191,7 +194,9 @@ class KuramanimeProvider : MainAPI() {
         cookies = req.cookies
 
         val token = res.selectFirst("meta[name=csrf-token]")?.attr("content") ?: return false
-        val dataKps = res.selectFirst("div.col-lg-12.mt-3")?.attr("data-kk") ?: return false
+        val dataKps = res.selectFirst("[data-kk]")?.attr("data-kk") ?: return false
+        val tokenAuthUrl = res.selectFirst("input#tokenAuthJs")?.attr("value")
+        val authScriptUrl = if (tokenAuthUrl != null) "$mainUrl$tokenAuthUrl" else "$mainUrl/storage/leviathan.js?v=${System.currentTimeMillis()}"
 
         val assets = getAssets(dataKps)
         var headers = mapOf(
@@ -212,9 +217,9 @@ class KuramanimeProvider : MainAPI() {
             val server = source.attr("value")
             val link = "$data?${assets.MIX_PAGE_TOKEN_KEY}=$tokenKey&${assets.MIX_STREAM_SERVER_KEY}=$server"
             if (server.contains(Regex("(?i)kuramadrive|archive"))) {
-                invokeLocalSource(link, server, headers, subtitleCallback, callback)
+                invokeLocalSource(link, server, headers, authScriptUrl, subtitleCallback, callback)
             } else {
-                val request = app.post(link, data = mapOf("authorization" to getAuth()), referer = data, headers = headers, cookies = cookies)
+                val request = app.post(link, data = mapOf("authorization" to getAuth(authScriptUrl)), referer = data, headers = headers, cookies = cookies)
                 delay(2000)
                 request.document.select("div.iframe-container iframe").attr("src").let { videoUrl ->
                     loadExtractor(fixUrl(videoUrl), "$mainUrl/", subtitleCallback, callback)
@@ -236,25 +241,25 @@ class KuramanimeProvider : MainAPI() {
         )
     }
 
-    suspend fun getAuth(): String {
-        return authorization ?: fetchAuth().also { authorization = it }
+    suspend fun getAuth(tokenUrl: String): String {
+        return authorization ?: fetchAuth(tokenUrl).also { authorization = it }
     }
 
-    suspend fun fetchAuth(): String {
-        val url = "$mainUrl/storage/leviathan.js?v=${System.currentTimeMillis()}"
-        
-        val jsCode = app.get(url, cookies = cookies).text
+    suspend fun fetchAuth(tokenUrl: String): String {
+        val jsCode = app.get(tokenUrl, cookies = cookies).text
 
         if (jsCode.trim().startsWith("<")) {
             throw ErrorLoadingException("Failed: leviathan.js blocked by Cloudflare (Gets HTML).")
         }
+        
+        val host = URI(mainUrl).host
 
         val script = """
             var window = this;
             var global = this;
             var document = { createElement: function() { return {}; } };
             var navigator = { userAgent: "Mozilla/5.0" };
-            var location = { hostname: "v18.kuramanime.ing", href: "$mainUrl" };
+            var location = { hostname: "$host", href: "$mainUrl" };
             
             var extractedToken = "FAILED_EMPTY";
 
@@ -264,15 +269,15 @@ class KuramanimeProvider : MainAPI() {
                 }
             };
 
-            var $ = function(options) {
+            var ${'$'} = function(options) {
                 if (options && options.headers && options.headers['Authorization']) {
                     extractedToken = options.headers['Authorization'];
                 }
                 return { done: function(){ return this; }, fail: function(){ return this; } };
             };
-            $.ajax = $;
-            window.$ = $;
-            window.jQuery = $;
+            ${'$'}.ajax = ${'$'};
+            window.${'$'} = ${'$'};
+            window.jQuery = ${'$'};
             
             try {
                 $jsCode
@@ -282,7 +287,7 @@ class KuramanimeProvider : MainAPI() {
 
             if (extractedToken === "FAILED_EMPTY") {
                 for (var key in window) {
-                    if (typeof window[key] === 'function' && key !== 'fetch' && key !== '$' && key !== 'evaluate') {
+                    if (typeof window[key] === 'function' && key !== 'fetch' && key !== '${'$'}' && key !== 'evaluate') {
                         try {
                             window[key]('https://dummy', 'GET', "{}");
                         } catch(e) {}
