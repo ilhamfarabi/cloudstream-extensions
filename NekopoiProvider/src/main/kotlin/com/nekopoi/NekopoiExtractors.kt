@@ -20,36 +20,60 @@ class Playmogo : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val doc = app.get(url).text
+        try {
+            val doc = app.get(url, referer = referer).text
+            
+            val title = Regex("""\[(\d+)[Pp]\]""").find(doc)?.groupValues?.getOrNull(1)
+            val pageQuality = title?.toIntOrNull() ?: 0
 
-        val title = Regex("""\[(\d+)[Pp]\]""").find(doc)?.groupValues?.getOrNull(1)
-        val pageQuality = title?.toIntOrNull() ?: 0
-
-        val passMd5 = Regex("/pass_md5/([^/]+)/([^/\\s\"')]+)").find(doc) ?: return
-        val passPath = passMd5.value
-        val videoBase = app.get("$mainUrl$passPath", referer = url).text.trim()
-        if (videoBase.isBlank()) return
-
-        val token = passMd5.groupValues[2]
-        val expiry = (System.currentTimeMillis() + 86400000).toString()
-        val videoUrl = if (videoBase.endsWith("~")) "$videoBase$token?token=$token&expiry=$expiry" else videoBase
-
-        val q = if (pageQuality > 0) pageQuality else when {
-            Regex("""\b(?:2160|4k)\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P2160.value
-            Regex("""\b(?:1080|hd)\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P1080.value
-            Regex("""\b720\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P720.value
-            Regex("""\b480\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P480.value
-            Regex("""\b360\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P360.value
-            else -> Qualities.Unknown.value
-        }
-
-        callback.invoke(
-            newExtractorLink(name, name, videoUrl) {
-                this.referer = mainUrl
-                this.quality = q
-                this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
+            val directSource = Regex("""source\s*:\s*['"](https?://[^'"]+\.m3u8.*?)['"]""").find(doc)?.groupValues?.getOrNull(1)
+            if (directSource != null) {
+                val q = if (pageQuality > 0) pageQuality else Qualities.Unknown.value
+                callback.invoke(
+                    newExtractorLink(name, name, directSource, ExtractorLinkType.M3U8) {
+                        this.referer = mainUrl
+                        this.quality = q
+                        this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
+                    }
+                )
+                return
             }
-        )
+
+            val passMd5 = Regex("""/pass_md5/([^/]+)/([^/\s"']+)""").find(doc) ?: return
+            val passPath = passMd5.value
+            
+            val req = app.get("$mainUrl$passPath", referer = url)
+            var videoBase = req.text.trim()
+            
+            if (videoBase.isBlank()) return
+
+            if (videoBase.startsWith("{")) {
+                videoBase = Regex("""['"]url['"]\s*:\s*['"]([^'"]+)['"]""").find(videoBase)?.groupValues?.getOrNull(1) ?: return
+            }
+
+            val token = passMd5.groupValues[2]
+            val expiry = (System.currentTimeMillis() + 86400000).toString()
+            val videoUrl = if (videoBase.endsWith("~")) "$videoBase$token?token=$token&expiry=$expiry" else videoBase
+
+            val q = if (pageQuality > 0) pageQuality else when {
+                Regex("""\b(?:2160|4k)\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P2160.value
+                Regex("""\b(?:1080|hd)\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P1080.value
+                Regex("""\b720\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P720.value
+                Regex("""\b480\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P480.value
+                Regex("""\b360\b""", RegexOption.IGNORE_CASE).containsMatchIn(videoUrl) -> Qualities.P360.value
+                else -> Qualities.Unknown.value
+            }
+
+            callback.invoke(
+                newExtractorLink(name, name, videoUrl, ExtractorLinkType.M3U8) {
+                    this.referer = mainUrl
+                    this.quality = q
+                    this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
+                }
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }
 
@@ -64,48 +88,59 @@ class Streampoi : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val html = app.get(url).text
+        try {
+            val html = app.get(url, referer = referer).text
 
-        val packed = Regex(
-            """eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d\s*\)\s*\{[\s\S]*?\}\s*\(\s*'((?:[^'\\]|\\.)*+)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([^']+)'\s*\.split\s*\(\s*'\|\s*'\s*\)\s*\)""",
-            RegexOption.IGNORE_CASE
-        ).find(html) ?: return
+            var fileUrl = Regex("""['"]file['"]\s*:\s*['"](https?://[^'"]+)['"]""").find(html)?.groupValues?.getOrNull(1)
 
-        val encoded = packed.groupValues[1]
-        val radix = packed.groupValues[2].toIntOrNull() ?: return
-        val count = packed.groupValues[3].toIntOrNull() ?: return
-        val dictStr = packed.groupValues[4]
-        val dictionary = dictStr.split("|")
+            if (fileUrl == null) {
+                val packed = Regex(
+                    """\}\s*\(\s*'((?:[^'\\]|\\.)*+)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([^']+)'\s*\.split\s*\(\s*'\|\s*'\s*\)""",
+                    RegexOption.IGNORE_CASE
+                ).find(html)
 
-        var result = encoded
-        for (i in (count - 1) downTo 0) {
-            val replacement = dictionary.getOrNull(i)
-            if (!replacement.isNullOrEmpty()) {
-                val word = i.toString(radix)
-                result = result.replace(Regex("\\b" + Regex.escape(word) + "\\b"), replacement)
+                if (packed != null) {
+                    val encoded = packed.groupValues[1]
+                    val radix = packed.groupValues[2].toIntOrNull() ?: return
+                    val count = packed.groupValues[3].toIntOrNull() ?: return
+                    val dictionary = packed.groupValues[4].split("|")
+
+                    var result = encoded
+                    for (i in (count - 1) downTo 0) {
+                        val replacement = dictionary.getOrNull(i)
+                        if (!replacement.isNullOrEmpty()) {
+                            val word = i.toString(radix)
+                            result = result.replace(Regex("\\b" + Regex.escape(word) + "\\b"), replacement)
+                        }
+                    }
+                    
+                    fileUrl = Regex("""['"]file['"]\s*:\s*['"]((?:[^'"]|\\.)*+)['"]""").find(result)?.groupValues?.getOrNull(1)
+                }
             }
-        }
 
-        val fileUrl = Regex("""['"]file['"]\s*:\s*['"]((?:[^'"]|\\.)*+)['"]""").find(result)?.groupValues?.getOrNull(1) ?: return
+            if (fileUrl == null) return
 
-        val links = M3u8Helper.generateM3u8(
-            source = name,
-            streamUrl = fileUrl,
-            referer = url,
-            headers = mapOf("Referer" to url, "Origin" to mainUrl)
-        )
-        if (links.isNotEmpty()) {
-            links.forEach { callback(it) }
-            return
-        }
-
-        callback.invoke(
-            newExtractorLink(name, name, fileUrl) {
-                this.referer = url
-                this.quality = Qualities.Unknown.value
-                this.type = ExtractorLinkType.M3U8
-                this.headers = mapOf("Referer" to url, "Origin" to mainUrl)
+            val links = M3u8Helper.generateM3u8(
+                source = name,
+                streamUrl = fileUrl,
+                referer = url,
+                headers = mapOf("Referer" to url, "Origin" to mainUrl)
+            )
+            
+            if (links.isNotEmpty()) {
+                links.forEach { callback(it) }
+            } else {
+                callback.invoke(
+                    newExtractorLink(name, name, fileUrl) {
+                        this.referer = url
+                        this.quality = Qualities.Unknown.value
+                        this.type = ExtractorLinkType.M3U8
+                        this.headers = mapOf("Referer" to url, "Origin" to mainUrl)
+                    }
+                )
             }
-        )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }
