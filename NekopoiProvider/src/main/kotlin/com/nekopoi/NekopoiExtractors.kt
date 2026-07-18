@@ -26,11 +26,13 @@ class Playmogo : ExtractorApi() {
             val title = Regex("""\[(\d+)[Pp]\]""").find(doc)?.groupValues?.getOrNull(1)
             val pageQuality = title?.toIntOrNull() ?: 0
 
-            val directSource = Regex("""source\s*:\s*['"](https?://[^'"]+\.m3u8.*?)['"]""").find(doc)?.groupValues?.getOrNull(1)
+            val directSource = Regex("""source\s*:\s*['"](https?://[^'"]+\.(?:m3u8|mp4).*?)['"]""").find(doc)?.groupValues?.getOrNull(1)
             if (directSource != null) {
                 val q = if (pageQuality > 0) pageQuality else Qualities.Unknown.value
+                val isM3u8 = directSource.contains(".m3u8", ignoreCase = true)
+                
                 callback.invoke(
-                    newExtractorLink(name, name, directSource, ExtractorLinkType.M3U8) {
+                    newExtractorLink(name, name, directSource, if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                         this.referer = mainUrl
                         this.quality = q
                         this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
@@ -64,8 +66,10 @@ class Playmogo : ExtractorApi() {
                 else -> Qualities.Unknown.value
             }
 
+            val isVideoM3u8 = videoUrl.contains(".m3u8", ignoreCase = true)
+
             callback.invoke(
-                newExtractorLink(name, name, videoUrl, ExtractorLinkType.M3U8) {
+                newExtractorLink(name, name, videoUrl, if (isVideoM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                     this.referer = mainUrl
                     this.quality = q
                     this.headers = mapOf("Referer" to mainUrl, "Origin" to mainUrl)
@@ -120,25 +124,29 @@ class Streampoi : ExtractorApi() {
 
             if (fileUrl == null) return
 
-            val links = M3u8Helper.generateM3u8(
-                source = name,
-                streamUrl = fileUrl,
-                referer = url,
-                headers = mapOf("Referer" to url, "Origin" to mainUrl)
-            )
-            
-            if (links.isNotEmpty()) {
-                links.forEach { callback(it) }
-            } else {
-                callback.invoke(
-                    newExtractorLink(name, name, fileUrl) {
-                        this.referer = url
-                        this.quality = Qualities.Unknown.value
-                        this.type = ExtractorLinkType.M3U8
-                        this.headers = mapOf("Referer" to url, "Origin" to mainUrl)
-                    }
+            val isM3u8 = fileUrl.contains(".m3u8", ignoreCase = true)
+
+            if (isM3u8) {
+                val links = M3u8Helper.generateM3u8(
+                    source = name,
+                    streamUrl = fileUrl,
+                    referer = url,
+                    headers = mapOf("Referer" to url, "Origin" to mainUrl)
                 )
+                if (links.isNotEmpty()) {
+                    links.forEach { callback(it) }
+                    return
+                }
             }
+
+            callback.invoke(
+                newExtractorLink(name, name, fileUrl) {
+                    this.referer = url
+                    this.quality = Qualities.Unknown.value
+                    this.type = if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                    this.headers = mapOf("Referer" to url, "Origin" to mainUrl)
+                }
+            )
         } catch (e: Exception) {
             e.printStackTrace()
         }
