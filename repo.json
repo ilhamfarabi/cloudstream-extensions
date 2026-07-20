@@ -4,6 +4,6 @@
     "description": "A curated collection of CloudStream extensions for anime, donghua, movies, and TV series with Indonesian subtitles",
     "manifestVersion": 1,
     "pluginLists": [
-      "https://raw.githubusercontent.com/HatsuneMikuUwU/cloudstream-extensions-uwu/builds/plugins.json"
+      "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/plugins.json"
     ]
 }
