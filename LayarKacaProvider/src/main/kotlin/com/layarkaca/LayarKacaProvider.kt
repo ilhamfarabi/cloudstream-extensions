@@ -1,3 +1,4 @@
+LayarKacaProvider.kt
 package com.layarkaca
 
 import com.lagradost.api.Log
@@ -7,13 +8,12 @@ import com.lagradost.cloudstream3.utils.*
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 import java.net.URI
-import java.net.URLEncoder
 
 class LayarKacaProvider : MainAPI() {
 
     override var mainUrl = "https://tv12.lk21official.cc/"
     private var seriesUrl = "https://tv5.nontondrama.my"
-    private var searchurl = "https://gudangvape.com"
+    private var searchurl= "https://tv12.lk21official.cc"
 
     override var name = "LayarKaca"
     override val hasMainPage = true
@@ -22,14 +22,6 @@ class LayarKacaProvider : MainAPI() {
         TvType.Movie,
         TvType.TvSeries,
         TvType.AsianDrama
-    )
-
-    // Headers untuk menghindari deteksi bot
-    private val searchHeaders = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language" to "en-US,en;q=0.9,id;q=0.8",
-        "Cookie" to "cf_clearance=uUbWmVkeXKNQfyPuZ0btWKw6jZPwtHw0Bx9Jz9KPFBA-1784563079-1.2.1.1-dvSCRN0XbxsYc.lEGEYUbBQTwiH24S45MOHfxoKCuUHM8nlNtPSaUB3BZeuXGq7c7zfNWxmogyBHeExzgWfJvH6QKY15WCAhwcfxOFba6z3EDcUNUZ03BF9WcYLudeOS2kaBREsO9HLXkqQyObZmlvFpfOGTFUbNeGRhf935HJE.Mts0Ak8DINwCXAkTdYMdI.crQzhtwRIhMX9U2l2SQV8wPYVokSSuC7bi2c2TLpHLKJwYXBbKl3Rm81gzJ7pYrgUe5Qz9ERTH9nBqXAhn6iEK7I5Imz_FNR_3RcBRJziE3.03NmD2kzfEF8u05cuY8bTs.5Mq.DQFHjngW5fthQ"
     )
 
     override val mainPage = mainPageOf(
@@ -89,39 +81,38 @@ class LayarKacaProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
+        val res = app.get("$searchurl/search.php?s=$query").text
         val results = mutableListOf<SearchResponse>()
-        val encodedQuery = URLEncoder.encode(query, "UTF-8")
 
-        // 1. Coba cari dari tv12 (film)
         try {
-            val url = "$mainUrl/search?s=$encodedQuery"
-            val document = app.get(url, headers = searchHeaders).document
-            
-            val noResult = document.selectFirst("div:containsOwn(Maaf, tidak ada hasil ditemukan!)")
-            if (noResult == null) {
-                document.select("li.slider article, article").mapNotNull {
-                    it.toSearchResult()
-                }.let { results.addAll(it) }
+            val root = JSONObject(res)
+            val arr = root.getJSONArray("data")
+
+            for (i in 0 until arr.length()) {
+                val item = arr.getJSONObject(i)
+                val title = item.getString("title")
+                val slug = item.getString("slug")
+                val type = item.getString("type")
+                val posterUrl = "https://poster.lk21.party/wp-content/uploads/" + item.optString("poster")
+                val posterheaders = mapOf("Referer" to getSafeBaseUrl(posterUrl))
+
+                when (type) {
+                    "series" -> results.add(
+                        newTvSeriesSearchResponse(title, "$seriesUrl/$slug", TvType.TvSeries) {
+                            this.posterUrl = posterUrl
+                            this.posterHeaders = posterheaders
+                        }
+                    )
+                    "movie" -> results.add(
+                        newMovieSearchResponse(title, "$mainUrl/$slug", TvType.Movie) {
+                            this.posterUrl = posterUrl
+                            this.posterHeaders = posterheaders
+                        }
+                    )
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-
-        // 2. Jika tidak ada hasil, coba dari tv5 (series)
-        if (results.isEmpty()) {
-            try {
-                val url = "$seriesUrl/search?s=$encodedQuery"
-                val document = app.get(url, headers = searchHeaders).document
-                
-                val noResult = document.selectFirst("div:containsOwn(Maaf, tidak ada hasil ditemukan!)")
-                if (noResult == null) {
-                    document.select("li.slider article, article").mapNotNull {
-                        it.toSearchResult()
-                    }.let { results.addAll(it) }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
         }
 
         return results
@@ -258,3 +249,4 @@ class LayarKacaProvider : MainAPI() {
         }
     }
 }
+perbaiki kode pencariannya, soalnya ini kalo cari film atau series gabisa
