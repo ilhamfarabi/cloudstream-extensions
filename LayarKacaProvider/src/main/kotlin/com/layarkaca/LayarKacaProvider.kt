@@ -58,7 +58,7 @@ class LayarKacaProvider : MainAPI() {
         val title = this.selectFirst("h3.poster-title, h3")?.text()?.trim() ?: return null
         val href = fixUrl(this.selectFirst("a")?.attr("href") ?: return null)
         val posterUrl = fixUrlNull(this.selectFirst("img")?.getImageAttr())
-        
+
         val isSeries = this.selectFirst("span.episode") != null
         val posterheaders = mapOf("Referer" to getSafeBaseUrl(posterUrl))
 
@@ -78,44 +78,49 @@ class LayarKacaProvider : MainAPI() {
         }
     }
 
-    // =============== BAGIAN SEARCH YANG SUDAH DIPERBAIKI ===============
+    // ==================== PERBAIKAN UTAMA DI SINI ====================
     override suspend fun search(query: String): List<SearchResponse> {
-        // Menggunakan mainUrl untuk mencari (standar WordPress menggunakan ?s=)
-        val searchUrl = "$mainUrl?s=$query"
-        val document = app.get(searchUrl).document
+        // 1. Coba cari di mainUrl (untuk film)
+        val url = "$mainUrl/search?s=$query"
+        val response = app.get(
+            url,
+            headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "Referer" to mainUrl
+            ),
+            allowRedirects = true
+        )
+        val document = response.document
 
-        // Gunakan selector yang SAMA PERSIS dengan getMainPage
-        val results = document.select("li.slider article, article").mapNotNull {
-            it.toSearchResult()
+        // Ambil hasil dengan selektor yang sama seperti di main page
+        var results = document.select("li.slider article, article")
+            .mapNotNull { it.toSearchResult() }
+
+        // 2. Jika hasil kosong (misal karena redirect atau tidak ada film), coba di seriesUrl
+        if (results.isEmpty()) {
+            val seriesSearchUrl = "$seriesUrl/search?s=$query"
+            val docSeries = app.get(
+                seriesSearchUrl,
+                headers = mapOf(
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                    "Referer" to seriesUrl
+                ),
+                allowRedirects = true
+            ).document
+            results = docSeries.select("li.slider article, article")
+                .mapNotNull { it.toSearchResult() }
         }
 
-        // Jika hasil ditemukan, langsung kembalikan
-        if (results.isNotEmpty()) {
-            return results
-        }
-
-        // Fallback: Jika selector utama tidak menemukan apapun, 
-        // coba selector alternatif untuk struktur halaman pencarian yang berbeda
-        return document.select("div.item, div.movie, div.post, div.result-item").mapNotNull { item ->
-            val title = item.selectFirst("h3, h2, a.title, a")?.text()?.trim() ?: return@mapNotNull null
-            val href = fixUrl(item.selectFirst("a")?.attr("href") ?: return@mapNotNull null)
-            val posterUrl = fixUrlNull(item.selectFirst("img")?.getImageAttr())
-            val posterheaders = mapOf("Referer" to getSafeBaseUrl(posterUrl))
-            
-            // Default ke Movie jika tidak bisa mendeteksi series
-            newMovieSearchResponse(title, href, TvType.Movie) {
-                this.posterUrl = posterUrl
-                this.posterHeaders = posterheaders
-            }
-        }
+        return results
     }
-    // =============== AKHIR BAGIAN SEARCH ================================
 
     override suspend fun load(url: String): LoadResponse {
         val fixUrl = getProperLink(url)
         val document = app.get(fixUrl).document
         val baseurl = fetchURL(fixUrl)
-        
+
         val title = document.selectFirst("div.movie-info h1, h1.poster-title")?.text()?.trim() ?: ""
         val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
         val tags = document.select("div.tag-list span, .genre a").map { it.text() }
@@ -123,12 +128,12 @@ class LayarKacaProvider : MainAPI() {
 
         val yearRegex = Regex("\\d, (\\d{4})|\\((\\d{4})\\)").find(title)
         val year = yearRegex?.groupValues?.drop(1)?.firstOrNull { it.isNotBlank() }?.toIntOrNull()
-        
+
         val tvType = if (document.selectFirst("#season-data") != null || url.contains(seriesUrl)) TvType.TvSeries else TvType.Movie
         val description = document.selectFirst("div.meta-info, .synopsis")?.text()?.trim()
         val trailer = document.selectFirst("ul.action-left > li:nth-child(3) > a, a.trailer")?.attr("href")
         val rating = document.selectFirst("div.info-tag strong, .rating strong")?.text()
-        
+
         val recommendations = document.select("li.slider article").mapNotNull {
             it.toSearchResult()
         }
