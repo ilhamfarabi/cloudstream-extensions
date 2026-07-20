@@ -1,0 +1,246 @@
+[
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/Cinemax21Provider.cs3",
+        "status": 1,
+        "version": 2,
+        "name": "Cinemax21Provider",
+        "internalName": "Cinemax21Provider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "CineMax21 \u2014 Streaming Movie and TV Series",
+        "fileSize": 241401,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries",
+            "Movie"
+        ],
+        "iconUrl": "https://klikxxi.me/wp-content/uploads/2024/02/cropped-site-icon.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-4cafe2ad848e29363d1c6d24e43da5f3de2ea2189f126c51cb85a9d81c2405c3"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/DrakorProvider.cs3",
+        "status": 1,
+        "version": 2,
+        "name": "DrakorProvider",
+        "internalName": "DrakorProvider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "Drakor \u2014 Streaming Drama Korean, Movie and TV Series",
+        "fileSize": 236991,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries",
+            "Movie"
+        ],
+        "iconUrl": "https://klikxxi.me/wp-content/uploads/2024/02/cropped-site-icon.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-eaf4e2842496de0cc4c46c3e7c1dde300c4580d625493bc3bced56f96f3f8138"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/DubbindoProvider.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "DubbindoProvider",
+        "internalName": "DubbindoProvider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "Dubbindo \u2014 Streaming Anime, Movie and TV Series",
+        "fileSize": 27319,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "Cartoon",
+            "Anime"
+        ],
+        "iconUrl": "https://www.google.com/s2/favicons?domain=www.dubbindo.site&sz=%size%",
+        "apiVersion": 1,
+        "fileHash": "sha256-f3d9dd7270110798c458ec52c0176392cac5bfd459cf6eb2d7967253b333a414"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/DutamovieProvider.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "DutamovieProvider",
+        "internalName": "DutamovieProvider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "DutaMovie \u2014 Streaming Movie and TV Series",
+        "fileSize": 29094,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "AsianDrama"
+        ],
+        "iconUrl": "https://offshorebankservices.com/wp-content/uploads/2022/07/cropped-dutamovie21-512x512-1-60x60.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-5ff40f3aa205d7d0584e118b7ab683cb5ae760db19350a471bda4ce9fc4c613e"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/IdlixProvider.cs3",
+        "status": 1,
+        "version": 3,
+        "name": "IdlixProvider",
+        "internalName": "IdlixProvider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "Idlix \u2014 Streaming Movie and TV Series",
+        "fileSize": 49490,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "AsianDrama"
+        ],
+        "iconUrl": "https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://idlixian.com&size=16",
+        "apiVersion": 1,
+        "fileHash": "sha256-260c480adf94e2a756afe62329864086240fb572e52a410e8086e49ac5f149bd",
+        "jarFileSize": 199549,
+        "jarUrl": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/IdlixProvider.jar",
+        "jarHash": "sha256-8db8e1403830d36b2a7b2880e3e5f8994b319a74357c3dbee0aee55f59993f68"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/IndoMax21Provider.cs3",
+        "status": 1,
+        "version": 3,
+        "name": "IndoMax21Provider",
+        "internalName": "IndoMax21Provider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "IndoMax21 \u2014 Streaming Anime, Donghua, Hentai, Porn, Movie and TV Series",
+        "fileSize": 25748,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "NSFW"
+        ],
+        "iconUrl": "https://homecookingrocks.com/wp-content/uploads/2024/10/cropped-indomax21-favicon-color-1.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-cbd7b6a51939c96934b0355f5fde94b18da8e2788c1a66ba4342018ba85c1cdf"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/KlikxxiProvider.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "KlikxxiProvider",
+        "internalName": "KlikxxiProvider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "KlikXXI \u2014 Streaming Movie and TV Series",
+        "fileSize": 21116,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://klikxxi.fit&size=%size%",
+        "apiVersion": 1,
+        "fileHash": "sha256-eb9c9d901933a46c1aa84ffb7e3254cc13ebafe147bde08144401de7291fb678"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/LayarAsiaProvider.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "LayarAsiaProvider",
+        "internalName": "LayarAsiaProvider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "LayarAsia \u2014 Streaming Drama Korean, Movie and TV Series",
+        "fileSize": 32008,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries",
+            "Movie"
+        ],
+        "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://layarasia.site&size=%size%",
+        "apiVersion": 1,
+        "fileHash": "sha256-945c57745ecbb2c5233a9ff60f90339c7013680325447afdc5b6091cd25f3cff"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/LayarKacaProvider.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "LayarKacaProvider",
+        "internalName": "LayarKacaProvider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "LayarKaca \u2014 Streaming Movie Subtitle Indonesia",
+        "fileSize": 34844,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries",
+            "Movie"
+        ],
+        "iconUrl": "https://assets.lk21.party/favicons/apple-icon-144x144.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-35175f655701a8154c273c8c7d0cd7bdf15106b882760dd97f8891c1c7db3f86"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/MovieboxProvider.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "MovieboxProvider",
+        "internalName": "MovieboxProvider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "MovieBox \u2014 Streaming Movie Subtitle Indonesia",
+        "fileSize": 31395,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "Anime",
+            "AsianDrama"
+        ],
+        "iconUrl": "https://movieboxph.app/wp-content/uploads/2025/11/Movie-Box-icon.webp",
+        "apiVersion": 1,
+        "fileHash": "sha256-05e1b811f2c30d8ab03ca1da5d6b8452607e19281bd89b297c8d3109e93130ef"
+    },
+    {
+        "url": "https://raw.githubusercontent.com/ilhamfarabi/cloudstream-extensions/builds/NgeFilm21Provider.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "NgeFilm21Provider",
+        "internalName": "NgeFilm21Provider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "NgeFilm21 \u2014 Streaming Movie and TV Series",
+        "fileSize": 31481,
+        "repositoryUrl": "https://github.com/ilhamfarabi/cloudstream-extensions",
+        "language": "id",
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries",
+            "Movie"
+        ],
+        "iconUrl": "https://new31.ngefilm.site/wp-content/uploads/2023/08/cropped-imageedit_8_4481000408-60x60.png",
+        "apiVersion": 1,
+        "fileHash": "sha256-a072dc978491309107e476a7c9ddd97250ba130f197f650702bcd514962f195a"
+    }
+]
