@@ -12,7 +12,6 @@ class LayarKacaProvider : MainAPI() {
 
     override var mainUrl = "https://tv12.lk21official.cc/"
     private var seriesUrl = "https://tv5.nontondrama.my"
-    private var searchurl= "https://gudangvape.com"
 
     override var name = "LayarKaca"
     override val hasMainPage = true
@@ -79,43 +78,38 @@ class LayarKacaProvider : MainAPI() {
         }
     }
 
+    // =============== BAGIAN SEARCH YANG SUDAH DIPERBAIKI ===============
     override suspend fun search(query: String): List<SearchResponse> {
-        val res = app.get("$searchurl/search.php?s=$query").text
-        val results = mutableListOf<SearchResponse>()
+        // Menggunakan mainUrl untuk mencari (standar WordPress menggunakan ?s=)
+        val searchUrl = "$mainUrl?s=$query"
+        val document = app.get(searchUrl).document
 
-        try {
-            val root = JSONObject(res)
-            val arr = root.getJSONArray("data")
-
-            for (i in 0 until arr.length()) {
-                val item = arr.getJSONObject(i)
-                val title = item.getString("title")
-                val slug = item.getString("slug")
-                val type = item.getString("type")
-                val posterUrl = "https://poster.lk21.party/wp-content/uploads/" + item.optString("poster")
-                val posterheaders = mapOf("Referer" to getSafeBaseUrl(posterUrl))
-
-                when (type) {
-                    "series" -> results.add(
-                        newTvSeriesSearchResponse(title, "$seriesUrl/$slug", TvType.TvSeries) {
-                            this.posterUrl = posterUrl
-                            this.posterHeaders = posterheaders
-                        }
-                    )
-                    "movie" -> results.add(
-                        newMovieSearchResponse(title, "$mainUrl/$slug", TvType.Movie) {
-                            this.posterUrl = posterUrl
-                            this.posterHeaders = posterheaders
-                        }
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        // Gunakan selector yang SAMA PERSIS dengan getMainPage
+        val results = document.select("li.slider article, article").mapNotNull {
+            it.toSearchResult()
         }
 
-        return results
+        // Jika hasil ditemukan, langsung kembalikan
+        if (results.isNotEmpty()) {
+            return results
+        }
+
+        // Fallback: Jika selector utama tidak menemukan apapun, 
+        // coba selector alternatif untuk struktur halaman pencarian yang berbeda
+        return document.select("div.item, div.movie, div.post, div.result-item").mapNotNull { item ->
+            val title = item.selectFirst("h3, h2, a.title, a")?.text()?.trim() ?: return@mapNotNull null
+            val href = fixUrl(item.selectFirst("a")?.attr("href") ?: return@mapNotNull null)
+            val posterUrl = fixUrlNull(item.selectFirst("img")?.getImageAttr())
+            val posterheaders = mapOf("Referer" to getSafeBaseUrl(posterUrl))
+            
+            // Default ke Movie jika tidak bisa mendeteksi series
+            newMovieSearchResponse(title, href, TvType.Movie) {
+                this.posterUrl = posterUrl
+                this.posterHeaders = posterheaders
+            }
+        }
     }
+    // =============== AKHIR BAGIAN SEARCH ================================
 
     override suspend fun load(url: String): LoadResponse {
         val fixUrl = getProperLink(url)
