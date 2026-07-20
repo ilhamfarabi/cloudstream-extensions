@@ -1,4 +1,3 @@
-LayarKacaProvider.kt
 package com.layarkaca
 
 import com.lagradost.api.Log
@@ -11,9 +10,9 @@ import java.net.URI
 
 class LayarKacaProvider : MainAPI() {
 
-    override var mainUrl = "https://tv12.lk21official.cc/"
-    private var seriesUrl = "https://tv5.nontondrama.my"
-    private var searchurl= "https://tv12.lk21official.cc"
+    override var mainUrl = "https://tv9.lk21official.cc"
+    private var seriesUrl = "https://tv3.nontondrama.my"
+    private var searchurl= "https://gudangvape.com"
 
     override var name = "LayarKaca"
     override val hasMainPage = true
@@ -249,4 +248,3 @@ class LayarKacaProvider : MainAPI() {
         }
     }
 }
-perbaiki kode pencariannya, soalnya ini kalo cari film atau series gabisa
