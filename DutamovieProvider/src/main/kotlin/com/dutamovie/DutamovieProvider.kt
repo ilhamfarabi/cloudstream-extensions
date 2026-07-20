@@ -9,7 +9,7 @@ import org.jsoup.nodes.Element
 import java.net.URI
 
 class DutamovieProvider : MainAPI() {
-    override var mainUrl = "https://ppspublishers.com"
+    override var mainUrl = "https://austincomputerworks.org"
 	private var directUrl: String? = null
     override var name = "DutaMovie"
     override val hasMainPage = true

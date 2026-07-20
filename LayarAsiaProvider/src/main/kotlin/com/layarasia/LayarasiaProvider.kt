@@ -15,7 +15,7 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 class LayarasiaProvider : MainAPI() {
-    override var mainUrl = "https://layarasia.lol"
+    override var mainUrl = "https://server-1.layar.asia"
     override var name = "LayarAsia"
     override val hasMainPage = true
     override var lang = "id"

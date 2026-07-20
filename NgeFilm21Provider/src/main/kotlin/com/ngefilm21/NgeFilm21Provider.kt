@@ -11,7 +11,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 class Ngefilm21Provider : MainAPI() {
-    override var mainUrl = "https://new31.ngefilm.site"
+    override var mainUrl = "https://new39.ngefilm.site"
     override var name = "NgeFilm21"
     override val hasMainPage = true
     override var lang = "id"

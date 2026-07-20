@@ -19,7 +19,7 @@ class KlikxxiProvider : MainAPI() {
     companion object {
         var context: android.content.Context? = null
     }
-    override var mainUrl = "https://klikxxi.me"
+    override var mainUrl = "https://klikxxi.shop"
     override var name = "KlikXXI"
     override val hasMainPage = true
     override var lang = "id"
